@@ -277,12 +277,25 @@ async def import_data(
     if data.get("export_type") != "backup":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File is not a valid AnyHabit backup")
         
+    def parse_date(date_str):
+        if not date_str:
+            return None
+        try:
+            return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+        except ValueError:
+            return None
+
     try:
         for t_data in data.get("trackers", []):
             t_data.pop("id", None)
             logs_data = t_data.pop("logs", [])
             journals_data = t_data.pop("journals", [])
             t_data["owner_id"] = current_user.id
+            
+            if "start_date" in t_data and isinstance(t_data["start_date"], str):
+                t_data["start_date"] = parse_date(t_data["start_date"])
+            if "current_streak_start_date" in t_data and isinstance(t_data["current_streak_start_date"], str):
+                t_data["current_streak_start_date"] = parse_date(t_data["current_streak_start_date"])
             
             new_tracker = models.Tracker(**t_data)
             db.add(new_tracker)
@@ -292,12 +305,16 @@ async def import_data(
                 l_data.pop("id", None)
                 l_data["tracker_id"] = new_tracker.id
                 l_data["user_id"] = current_user.id
+                if "timestamp" in l_data and isinstance(l_data["timestamp"], str):
+                    l_data["timestamp"] = parse_date(l_data["timestamp"])
                 db.add(models.HabitLog(**l_data))
                 
             for j_data in journals_data:
                 j_data.pop("id", None)
                 j_data["tracker_id"] = new_tracker.id
                 j_data["user_id"] = current_user.id
+                if "timestamp" in j_data and isinstance(j_data["timestamp"], str):
+                    j_data["timestamp"] = parse_date(j_data["timestamp"])
                 db.add(models.JournalEntry(**j_data))
         
         for g_data in data.get("groups", []):
@@ -309,6 +326,8 @@ async def import_data(
         for d_data in data.get("dashboard_states", []):
             d_data.pop("id", None)
             d_data["user_id"] = current_user.id
+            if "updated_at" in d_data and isinstance(d_data["updated_at"], str):
+                d_data["updated_at"] = parse_date(d_data["updated_at"])
             db.add(models.UserDashboardState(**d_data))
             
         db.commit()
