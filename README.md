@@ -61,6 +61,7 @@
 * **Impact Units:** Automatically calculate money/Calories and more by avoiding negative habits.
 * **Daily Journal:** Log your mood and thoughts alongside your habits.
 * **Self-Hosted & Private:** Complete control over your data with SQLite and Docker.
+* **Full Data Ownership (Export & Import):** Export your trackers and journals as CSV for analysis, or generate a complete JSON raw-backup of your entire profile to safely restore or migrate your data to another server.
 
 ---
 
@@ -110,12 +111,11 @@ Frontend auth now uses HttpOnly cookies; API calls must include credentials.
 
 ---
 
-## � Backend API Documentation
+## 📚 Backend API Documentation
 
 AnyHabit provides a **complete REST API** that enables you to:
 - ✅ **Build custom frontends** with any framework (React, Vue, Flutter, etc.)
-- ✅ **Integrate with your own applications** 
-- ✅ **Access all data programmatically** without the UI
+- ✅ **Integrate with your own applications** - ✅ **Access all data programmatically** without the UI
 
 ### Quick Links
 
@@ -148,7 +148,7 @@ FastAPI provides built-in interactive documentation:
 
 ---
 
-## �🛠️ Tech Stack
+## 🛠️ Tech Stack
 
 * **Backend:** [FastAPI](https://fastapi.tiangolo.com/) (Python 3.12-slim)
 * **Frontend:** [React 19](https://react.dev/) + [Vite](https://vitejs.dev/)
@@ -173,10 +173,10 @@ Join our **[Discord Server](https://discord.gg/ajknBq5zcH)** to:
 
 ## ⭐ Star History
 
-<a href="https://www.star-history.com/?repos=Sparths%2FAnyHabit&type=date&legend=top-left">
+<a href="[https://www.star-history.com/?repos=Sparths%2FAnyHabit&type=date&legend=top-left](https://www.star-history.com/?repos=Sparths%2FAnyHabit&type=date&legend=top-left)">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="[https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&theme=dark&legend=top-left](https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&theme=dark&legend=top-left)" />
+   <source media="(prefers-color-scheme: light)" srcset="[https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&legend=top-left](https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&legend=top-left)" />
+   <img alt="Star History Chart" src="[https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&legend=top-left](https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&legend=top-left)" />
  </picture>
 </a>

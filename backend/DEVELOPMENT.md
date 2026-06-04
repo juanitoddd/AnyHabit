@@ -10,24 +10,28 @@ backend/
 ├── data/                        # SQLite database (local dev only)
 ├── routers/                     # API endpoint definitions
 │   ├── __init__.py
-│   ├── trackers.py             # /trackers endpoints
-│   ├── logs.py                 # /logs endpoints
-│   ├── journals.py             # /journal endpoints
-│   └── dashboard.py            # /dashboard endpoints
-├── analytics.py                # Business logic (calculations)
-├── database.py                 # Database connection
-├── deps.py                     # Dependency injection
-├── main.py                     # Application entry point
-├── migrations.py               # Database migrations
-├── models.py                   # SQLAlchemy ORM models
-├── schemas.py                  # Pydantic request/response schemas
-├── time_utils.py              # Date/time utilities
-├── requirements.txt            # Python dependencies
-├── Dockerfile                  # Container definition
-├── README.md                   # API documentation
-├── API_QUICK_REFERENCE.md      # Quick API cheat sheet
-├── FRONTEND_INTEGRATION.md     # Frontend dev guide
-└── INDEX.md                    # Documentation index
+│   ├── auth.py                  # /auth endpoints (JWT, Login, Register)
+│   ├── trackers.py              # /trackers endpoints
+│   ├── logs.py                  # /logs endpoints
+│   ├── journals.py              # /journal endpoints
+│   ├── groups.py                # /groups endpoints (Multi-User)
+│   ├── dashboard.py             # /dashboard endpoints
+│   └── export.py                # /export endpoints (Data Export & Backup Import)
+├── analytics.py                 # Business logic (calculations)
+├── database.py                  # Database connection
+├── deps.py                      # Dependency injection & Auth verification
+├── main.py                      # Application entry point
+├── migrations.py                # Database migrations
+├── models.py                    # SQLAlchemy ORM models
+├── schemas.py                   # Pydantic request/response schemas
+├── security.py                  # Password hashing & JWT token generation
+├── time_utils.py                # Date/time utilities
+├── requirements.txt             # Python dependencies
+├── Dockerfile                   # Container definition
+├── README.md                    # API documentation
+├── API_QUICK_REFERENCE.md       # Quick API cheat sheet
+├── FRONTEND_INTEGRATION.md      # Frontend dev guide
+└── INDEX.md                     # Documentation index
 ```
 
 ## Core Components
@@ -48,27 +52,27 @@ Base = declarative_base()
 
 ### 2. Models (models.py)
 
-SQLAlchemy ORM definitions:
+SQLAlchemy ORM definitions now support multi-user environments:
 
 ```python
+class User(Base):
+    """Represents an authenticated user"""
+    id = Column(Integer, primary_key=True)
+    username = Column(String, unique=True)
+    hashed_password = Column(String)
+
 class Tracker(Base):
     """Represents a habit/goal tracker"""
     id = Column(Integer, primary_key=True)
+    owner_id = Column(Integer, ForeignKey("users.id"))
     name = Column(String)
     type = Column(String)  # "build", "quit", "boolean"
     # ... other fields
-
-class HabitLog(Base):
-    """Activity log for a tracker"""
-    id = Column(Integer, primary_key=True)
-    tracker_id = Column(ForeignKey("trackers.id"))
-    amount = Column(Float)
-    timestamp = Column(DateTime)
 ```
 
 **Key Points:**
 - Uses UTC-naive datetimes
-- Foreign keys for relationships
+- Foreign keys for relationships (every resource belongs to a `User` or `Group`)
 - Cascade deletes on tracker deletion
 
 ### 3. Schemas (schemas.py)
@@ -79,6 +83,7 @@ Pydantic models for request/response validation:
 class Tracker(BaseModel):
     """Response schema for trackers"""
     id: int
+    owner_id: int
     name: str
     type: str
     # ...
@@ -100,7 +105,7 @@ class TrackerCreate(BaseModel):
 Business logic and calculations:
 
 ```python
-def build_tracker_analytics(tracker, logs, journals):
+def build_tracker_analytics(tracker, logs, journals, current_user_id=None):
     """Compute all metrics for a tracker"""
     current_math = _calculate_current_math(tracker, logs)
     daily_progress = _calculate_daily_progress(tracker, logs)
@@ -118,34 +123,26 @@ def build_tracker_analytics(tracker, logs, journals):
 - `_calculate_daily_progress()` - Today's progress
 - `_calculate_streak_stats()` - Streak counts
 - `_build_historical_chart_data()` - 120-day history
-- `_build_heatmap()` - GitHub-style heatmap
 - `build_dashboard_summary()` - Aggregate all trackers
 
 ### 5. Routers (routers/)
 
-FastAPI endpoints:
+FastAPI endpoints organized by domain:
 
 ```python
 @router.get("/trackers/")
-def read_trackers(db: Session = Depends(get_db)):
-    return db.query(models.Tracker).all()
-
-@router.post("/trackers/")
-def create_tracker(tracker: schemas.TrackerCreate, db: Session = Depends(get_db)):
-    db_tracker = models.Tracker(**tracker.dict())
-    db.add(db_tracker)
-    db.commit()
-    return db_tracker
+def read_trackers(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    return db.query(models.Tracker).filter(models.Tracker.owner_id == current_user.id).all()
 ```
 
 **Organization:**
-- One file per resource
-- Grouped by operation (POST, GET, PUT, DELETE)
+- One file per resource (`auth.py`, `trackers.py`, `export.py`, etc.)
+- Endpoints are protected via `Depends(get_current_user)`
 - Error handling with HTTPException
 
 ### 6. Dependencies (deps.py)
 
-Dependency injection:
+Dependency injection & Security:
 
 ```python
 def get_db():
@@ -154,9 +151,11 @@ def get_db():
         yield db
     finally:
         db.close()
-```
 
-Used in endpoints: `db: Session = Depends(get_db)`
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    # Validates JWT token and returns User model
+    pass
+```
 
 ### 7. Application (main.py)
 
@@ -169,125 +168,44 @@ app = FastAPI(title="AnyHabit API")
 app.add_middleware(CORSMiddleware, ...)
 
 # Routes
+app.include_router(auth_router)
 app.include_router(trackers_router)
-app.include_router(logs_router)
+app.include_router(export_router)
+# ...
 ```
-
----
-
-## How to Add a New Endpoint
-
-### Step 1: Update Schema
-
-In `schemas.py`:
-
-```python
-class MyResourceBase(BaseModel):
-    name: str
-    value: int
-
-class MyResourceCreate(MyResourceBase):
-    pass
-
-class MyResource(MyResourceBase):
-    id: int
-    class Config:
-        from_attributes = True
-```
-
-### Step 2: Update Model
-
-In `models.py`:
-
-```python
-class MyResource(Base):
-    __tablename__ = "my_resources"
-    
-    id = Column(Integer, primary_key=True)
-    name = Column(String)
-    value = Column(Integer)
-```
-
-### Step 3: Run Migrations
-
-In `migrations.py`:
-
-```python
-def run_startup_migrations():
-    # Add your migration logic
-    pass
-```
-
-### Step 4: Create Route
-
-In `routers/my_resource.py`:
-
-```python
-@router.post("/", response_model=schemas.MyResource)
-def create_my_resource(resource: schemas.MyResourceCreate, db: Session = Depends(get_db)):
-    db_resource = models.MyResource(**resource.dict())
-    db.add(db_resource)
-    db.commit()
-    db.refresh(db_resource)
-    return db_resource
-
-@router.get("/", response_model=list[schemas.MyResource])
-def read_my_resources(db: Session = Depends(get_db)):
-    return db.query(models.MyResource).all()
-```
-
-### Step 5: Register Router
-
-In `main.py`:
-
-```python
-from .routers import my_resource_router
-
-app.include_router(my_resource_router)
-```
-
-### Step 6: Update Documentation
-
-Add the new endpoint details to the relevant README or quick reference so the API docs stay aligned with the code.
 
 ---
 
 ## Data Flow
 
-### Creating a Tracker
-
+### 1. Authentication Flow
 ```
-1. Frontend sends: POST /trackers/
-   {
-     "name": "Reading",
-     "type": "build",
-     "units_per_amount": 2,
-     "units_per": "day",
-     ...
-   }
-
-2. Fastapi validates with TrackerCreate schema
-3. Route handler (routers/trackers.py) creates model
-4. Model stored in SQLite database
-5. Model converted back to Tracker schema
-6. JSON response sent to frontend
+1. Frontend sends: POST /auth/login { "identifier": "...", "password": "..." }
+2. auth.py validates credentials against User table.
+3. security.py generates a JWT token.
+4. Token is attached to response as an HttpOnly cookie.
+5. Subsequent requests pass through deps.get_current_user() for validation.
 ```
 
-### Getting Tracker with Analytics
-
+### 2. Creating a Tracker
 ```
-1. Frontend sends: GET /trackers/1/bundle
-2. Route fetches tracker from database
-3. Route fetches logs: HabitLog records
-4. Route fetches journals: JournalEntry records
-5. analytics.py computes all metrics:
-   - Current progress
-   - Daily progress
-   - Streaks
-   - Charts
-   - Heatmap
-6. TrackerBundle schema combines all data
-7. JSON response sent to frontend
+1. Frontend sends: POST /trackers/ (with Auth Cookie)
+2. FastAPI validates with TrackerCreate schema.
+3. deps.py extracts current_user.
+4. Route handler (routers/trackers.py) creates model and assigns owner_id = current_user.id.
+5. JSON response sent to frontend.
+```
+
+### 3. Export & Backup Import Flow
+```
+1. Frontend sends: POST /export/import/ (Multipart File Upload)
+2. export.py parses the JSON file.
+3. Validates that it is a "Full Backup" (`export_type == "backup"`).
+4. Loops through Trackers, Logs, Journals, and Groups:
+   - Pops the old database `id` (to avoid auto-increment collisions).
+   - Re-assigns the `owner_id` or `user_id` to the currently logged-in user.
+   - Bulk inserts everything into the database.
+5. UserDashboardState is overwritten for a clean slate.
 ```
 
 ---
@@ -298,34 +216,28 @@ Add the new endpoint details to the relevant README or quick reference so the AP
 
 ```python
 @router.get("/{tracker_id}/")
-def read_tracker(tracker_id: int, db: Session = Depends(get_db)):
+def read_tracker(tracker_id: int, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     tracker = db.query(models.Tracker).filter(models.Tracker.id == tracker_id).first()
     
     if not tracker:
         raise HTTPException(status_code=404, detail="Tracker not found")
+        
+    if tracker.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
     
     return tracker
 ```
 
-### Response
-
-```json
-{
-  "detail": "Tracker not found"
-}
-```
-
 ### Common Patterns
-
 ```python
 # Not found
 raise HTTPException(status_code=404, detail="Resource not found")
-
+# Unauthorized
+raise HTTPException(status_code=401, detail="Invalid credentials")
+# Forbidden
+raise HTTPException(status_code=403, detail="Not enough permissions")
 # Validation error
 raise HTTPException(status_code=400, detail="Invalid data")
-
-# Server error
-raise HTTPException(status_code=500, detail="Internal server error")
 ```
 
 ---
@@ -347,16 +259,6 @@ trackers = db.query(models.Tracker).all()
 logs = db.query(models.HabitLog).all()  # Fetch all at once
 ```
 
-### Analytics Caching
-
-```python
-# Current: Computed on each request
-GET /trackers/1/analytics  # Calculates every time
-
-# Future optimization: Cache results
-# Could add Redis/memcached
-```
-
 ### Date Math
 
 The analytics module includes optimized date calculations:
@@ -371,88 +273,63 @@ shift_period(datetime(2024, 1, 31), "month", 1)
 
 ## Database Schema
 
-### Trackers Table
-
+### Users & Groups Table
 ```
-tracker_id (int) PRIMARY KEY
-name (string)
-category (string)
-type (string) - "build", "quit", "boolean"
-start_date (datetime)
-current_streak_start_date (datetime)
-unit (string)
-units_per_amount (float)
-units_per (string) - "day", "week", "month", "year"
-units_per_interval (int)
-impact_amount (float)
-impact_per (string)
-impact_unit (string)
-is_active (boolean)
+users
+- id (int) PRIMARY KEY
+- username (string)
+- email (string)
+- hashed_password (string)
+
+groups
+- id (int) PRIMARY KEY
+- name (string)
+- owner_id (int) FOREIGN KEY (users.id)
+- join_code (string)
+```
+
+### Trackers Table
+```
+trackers
+- id (int) PRIMARY KEY
+- owner_id (int) FOREIGN KEY (users.id)
+- group_id (int, nullable) FOREIGN KEY (groups.id)
+- name (string)
+- category (string)
+- type (string) - "build", "quit", "boolean"
+- unit (string)
+...
 ```
 
 ### HabitLog Table
-
 ```
-log_id (int) PRIMARY KEY
-tracker_id (int) FOREIGN KEY
-timestamp (datetime)
-amount (float)
-```
-
-### JournalEntry Table
-
-```
-entry_id (int) PRIMARY KEY
-tracker_id (int) FOREIGN KEY
-timestamp (datetime)
-mood (int) - 1-10
-content (string)
-is_relapse (boolean)
+habit_logs
+- id (int) PRIMARY KEY
+- tracker_id (int) FOREIGN KEY
+- user_id (int) FOREIGN KEY
+- timestamp (datetime)
+- amount (float)
 ```
 
-### DashboardState Table
-
+### UserDashboardState Table
 ```
-state_id (int) PRIMARY KEY
-name (string) - "home"
-widgets_json (string) - JSON
-layouts_json (string) - JSON
-updated_at (datetime)
+user_dashboard_states
+- id (int) PRIMARY KEY
+- user_id (int) FOREIGN KEY
+- name (string) - "home"
+- widgets_json (string) - JSON
+- layouts_json (string) - JSON
 ```
 
 ---
 
 ## Advanced Topics
 
-### Custom Tracker Types
+### Database Migrations
+AnyHabit handles migrations on startup. When you add a new column to a model in `models.py`, ensure to add an `ALTER TABLE` execution step inside `migrations.py` so existing databases are updated without data loss.
 
-To add a new tracker type (e.g., "hybrid"):
-
-1. Update `schemas.py` to document the type
-2. Update `analytics.py` calculation logic:
-   ```python
-   if tracker.type == "hybrid":
-       # Custom calculation
-   ```
-3. Document in README
-
-### Time Zone Support
-
-Currently uses UTC-naive datetime. To add timezone support:
-
-1. Store timezone in Tracker model
-2. Convert on storage/retrieval
-3. Update analytics calculations
-4. Update documentation
-
-### Real-Time Updates
-
-For WebSocket support:
-
-1. Add WebSocket route in FastAPI
-2. Emit events on data changes
-3. Frontend connects to stream
-4. Real-time updates without polling
+### Data Export/Import Mechanism
+The backup script (`routers/export.py`) uses a raw dictionary mapping `_model_to_dict()` instead of relying purely on schemas. This ensures that a database export behaves exactly like a direct SQLAlchemy query dump. When importing, the backend creates fresh models `models.Tracker(**t_data)` while explicitly discarding the old auto-increment `id`.
 
 ---
 
@@ -465,25 +342,13 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 ```
 
-### Interactive Shell
+### Database Inspection (Docker)
 
 ```bash
-python -c "
-from backend.database import SessionLocal
-from backend import models
-
-db = SessionLocal()
-trackers = db.query(models.Tracker).all()
-print(trackers)
-"
-```
-
-### Database Inspection
-
-```bash
+# Exec into container
+docker exec -it anyhabit-backend bash
 sqlite3 data/anyhabit.db
-sqlite> .tables
-sqlite> SELECT * FROM trackers;
+sqlite> SELECT username, email FROM users;
 ```
 
 ## Deployment
@@ -491,23 +356,18 @@ sqlite> SELECT * FROM trackers;
 ### Docker
 
 ```bash
-# Build
-docker build -t anyhabit-backend .
-
-# Run
-docker run -p 8000:8000 anyhabit-backend
+# Build & Run via Compose (Recommended)
+docker compose up -d --build
 ```
 
 ### Production Checklist
 
-- [ ] Use PostgreSQL (not SQLite)
+- [x] Add authentication (JWT implemented)
+- [x] Multi-user isolation
+- [x] Database backups (via Backup-Export JSON)
+- [ ] Use PostgreSQL (not SQLite - optional for larger deployments)
 - [ ] Set secure CORS origins
-- [ ] Add authentication
-- [ ] Enable rate limiting
-- [ ] Add API versioning
-- [ ] Database backups
-- [ ] Error monitoring (Sentry)
-- [ ] Performance monitoring
+- [ ] Error monitoring (e.g., Sentry)
 
 ---
 
@@ -533,5 +393,5 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for details.
 ---
 
 **Last Updated:** March 2024  
-**Version:** 1.0  
+**Version:** 1.1.0  
 **Maintainers:** [AnyHabit Team](https://github.com/Sparths/AnyHabit)

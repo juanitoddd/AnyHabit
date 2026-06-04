@@ -1,9 +1,10 @@
 import csv
 import json
+from datetime import datetime, timezone
 from io import StringIO
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status, UploadFile, File
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
@@ -17,7 +18,6 @@ router = APIRouter(prefix="/export", tags=["export"])
 def _format_timestamp(dt) -> str:
     """Format datetime to ISO format string"""
     if dt is None:
-        from datetime import datetime, timezone
         return datetime.now(timezone.utc).isoformat()
     normalized = ensure_utc(dt)
     return normalized.isoformat() if normalized else ""
@@ -29,7 +29,6 @@ def _model_to_dict(obj):
     data = {}
     for c in obj.__table__.columns:
         val = getattr(obj, c.name)
-        # Convert datetime objects to string
         if hasattr(val, 'isoformat'):
             data[c.name] = _format_timestamp(val)
         else:
@@ -118,7 +117,6 @@ def export_data(
     if format not in ["json", "csv"]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid format")
 
-    # --- BACKUP LOGIC FOR SERVER MIGRATION ---
     if data_type == "backup":
         if format != "json":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Backup must be in JSON format")
@@ -130,15 +128,10 @@ def export_data(
         raw_trackers = []
         for t in user_trackers:
             t_dict = _model_to_dict(t)
-            
-            # Raw Logs
             logs = db.query(models.HabitLog).filter(models.HabitLog.tracker_id == t.id).all()
             t_dict["logs"] = [_model_to_dict(l) for l in logs]
-            
-            # Raw Journals
             journals = db.query(models.JournalEntry).filter(models.JournalEntry.tracker_id == t.id).all()
             t_dict["journals"] = [_model_to_dict(j) for j in journals]
-            
             raw_trackers.append(t_dict)
 
         export_data = {
@@ -157,10 +150,7 @@ def export_data(
         }
         
         return Response(content=json.dumps(export_data, indent=2, default=str), media_type="application/json")
-    # --- END BACKUP LOGIC ---
 
-
-    # --- ORIGINAL EXPORT LOGIC ---
     user_trackers = db.query(models.Tracker).filter(models.Tracker.owner_id == current_user.id).all()
 
     if data_type == "specific":
@@ -267,3 +257,63 @@ def export_data(
 
         csv_str = output.getvalue()
         return Response(content=csv_str, media_type="text/csv")
+
+@router.post("/import/")
+async def import_data(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Import user data from a backup JSON file."""
+    if not file.filename.endswith('.json'):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only JSON backup files are supported")
+    
+    try:
+        contents = await file.read()
+        data = json.loads(contents)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON file format")
+        
+    if data.get("export_type") != "backup":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File is not a valid AnyHabit backup")
+        
+    try:
+        for t_data in data.get("trackers", []):
+            t_data.pop("id", None)
+            logs_data = t_data.pop("logs", [])
+            journals_data = t_data.pop("journals", [])
+            t_data["owner_id"] = current_user.id
+            
+            new_tracker = models.Tracker(**t_data)
+            db.add(new_tracker)
+            db.flush()
+            
+            for l_data in logs_data:
+                l_data.pop("id", None)
+                l_data["tracker_id"] = new_tracker.id
+                l_data["user_id"] = current_user.id
+                db.add(models.HabitLog(**l_data))
+                
+            for j_data in journals_data:
+                j_data.pop("id", None)
+                j_data["tracker_id"] = new_tracker.id
+                j_data["user_id"] = current_user.id
+                db.add(models.JournalEntry(**j_data))
+        
+        for g_data in data.get("groups", []):
+            g_data.pop("id", None)
+            g_data["owner_id"] = current_user.id
+            db.add(models.Group(**g_data))
+            
+        db.query(models.UserDashboardState).filter(models.UserDashboardState.user_id == current_user.id).delete()
+        for d_data in data.get("dashboard_states", []):
+            d_data.pop("id", None)
+            d_data["user_id"] = current_user.id
+            db.add(models.UserDashboardState(**d_data))
+            
+        db.commit()
+        return {"message": "Data successfully imported"}
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Import failed: {str(e)}")
