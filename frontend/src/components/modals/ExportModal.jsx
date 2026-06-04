@@ -1,5 +1,5 @@
 import { Download, X } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { exportDataApi } from '../../services/exportApi';
 
 function ExportModal({ isOpen, setIsExportOpen, trackers }) {
@@ -8,6 +8,13 @@ function ExportModal({ isOpen, setIsExportOpen, trackers }) {
   const [exportFormat, setExportFormat] = useState('json');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  // Force JSON format if backup is selected
+  useEffect(() => {
+    if (dataType === 'backup') {
+      setExportFormat('json');
+    }
+  }, [dataType]);
 
   if (!isOpen) return null;
 
@@ -30,7 +37,7 @@ function ExportModal({ isOpen, setIsExportOpen, trackers }) {
       setError(null);
       setIsLoading(true);
 
-      const trackerIds = dataType === 'specific' ? selectedTrackers : dataType === 'journals_only' ? [] : null;
+      const trackerIds = dataType === 'specific' ? selectedTrackers : (dataType === 'journals_only' ? [] : null);
 
       const data = await exportDataApi({
         data_type: dataType,
@@ -45,7 +52,10 @@ function ExportModal({ isOpen, setIsExportOpen, trackers }) {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `anyhabit-export-${new Date().toISOString().split('T')[0]}.${exportFormat}`;
+      
+      const fileNameSuffix = dataType === 'backup' ? 'full-backup' : 'export';
+      link.download = `anyhabit-${fileNameSuffix}-${new Date().toISOString().split('T')[0]}.${exportFormat}`;
+      
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -93,13 +103,26 @@ function ExportModal({ isOpen, setIsExportOpen, trackers }) {
                 <input
                   type="radio"
                   name="dataType"
+                  value="backup"
+                  checked={dataType === 'backup'}
+                  onChange={(e) => setDataType(e.target.value)}
+                  className="w-4 h-4"
+                />
+                <span className="text-sm font-medium text-stone-900">Full Backup (Re-Import)</span>
+                <span className="text-xs text-gray-500 ml-auto flex-shrink-0">Complete raw data dump</span>
+              </label>
+
+              <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
+                <input
+                  type="radio"
+                  name="dataType"
                   value="all"
                   checked={dataType === 'all'}
                   onChange={(e) => setDataType(e.target.value)}
                   className="w-4 h-4"
                 />
-                <span className="text-sm font-medium text-stone-900">All Data</span>
-                <span className="text-xs text-gray-500 ml-auto">All trackers with logs & journals</span>
+                <span className="text-sm font-medium text-stone-900">All Data (Readable)</span>
+                <span className="text-xs text-gray-500 ml-auto flex-shrink-0">Trackers with calculated stats</span>
               </label>
 
               <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
@@ -112,7 +135,7 @@ function ExportModal({ isOpen, setIsExportOpen, trackers }) {
                   className="w-4 h-4"
                 />
                 <span className="text-sm font-medium text-stone-900">Trackers Only</span>
-                <span className="text-xs text-gray-500 ml-auto">Tracker settings & logs</span>
+                <span className="text-xs text-gray-500 ml-auto flex-shrink-0">Tracker settings & logs</span>
               </label>
 
               <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
@@ -125,7 +148,7 @@ function ExportModal({ isOpen, setIsExportOpen, trackers }) {
                   className="w-4 h-4"
                 />
                 <span className="text-sm font-medium text-stone-900">Journals Only</span>
-                <span className="text-xs text-gray-500 ml-auto">All journal entries</span>
+                <span className="text-xs text-gray-500 ml-auto flex-shrink-0">All journal entries</span>
               </label>
 
               <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
@@ -138,7 +161,7 @@ function ExportModal({ isOpen, setIsExportOpen, trackers }) {
                   className="w-4 h-4"
                 />
                 <span className="text-sm font-medium text-stone-900">Specific Trackers</span>
-                <span className="text-xs text-gray-500 ml-auto">Choose which trackers</span>
+                <span className="text-xs text-gray-500 ml-auto flex-shrink-0">Choose which trackers</span>
               </label>
             </div>
           </div>
@@ -192,18 +215,21 @@ function ExportModal({ isOpen, setIsExportOpen, trackers }) {
                 </div>
               </label>
 
-              <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
+              <label className={`flex items-center gap-3 p-3 border border-gray-200 rounded-lg transition-colors ${dataType === 'backup' ? 'opacity-50 cursor-not-allowed bg-gray-50' : 'hover:bg-gray-50 cursor-pointer'}`}>
                 <input
                   type="radio"
                   name="format"
                   value="csv"
                   checked={exportFormat === 'csv'}
                   onChange={(e) => setExportFormat(e.target.value)}
-                  className="w-4 h-4"
+                  disabled={dataType === 'backup'}
+                  className="w-4 h-4 disabled:cursor-not-allowed"
                 />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-stone-900">CSV</p>
-                  <p className="text-xs text-gray-500">Spreadsheet format, good for analysis</p>
+                  <p className="text-xs text-gray-500">
+                    {dataType === 'backup' ? 'Not available for Full Backup' : 'Spreadsheet format, good for analysis'}
+                  </p>
                 </div>
               </label>
             </div>

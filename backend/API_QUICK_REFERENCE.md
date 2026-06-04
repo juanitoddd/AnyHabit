@@ -207,6 +207,18 @@ const journal = await fetch(`/api/trackers/${tracker.id}/journal`, {
 }).then(r => r.json());
 ```
 
+### Export
+
+*   **GET `/export/`**
+    *   **Description:** Exports user data in the specified format.
+    *   **Query Parameters:**
+        *   `data_type` (string): The type of data to export. Valid options: `all`, `trackers_only`, `journals_only`, `specific`, `backup`. 
+            *   *Note: `backup` provides a 1:1 database dump for re-importing.*
+        *   `format` (string): The export format. Valid options: `json`, `csv`. 
+            *   *Note: `backup` data_type strictly requires `json` format.*
+        *   `tracker_id` (list[int], optional): Required if `data_type` is `specific`.
+    *   **Returns:** A downloadable JSON or CSV file.
+
 ### Get complete tracker view
 
 ```javascript
