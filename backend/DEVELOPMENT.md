@@ -392,6 +392,6 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for details.
 
 ---
 
-**Last Updated:** March 2024  
+**Last Updated:** June 2026  
 **Version:** 1.1.0  
 **Maintainers:** [AnyHabit Team](https://github.com/Sparths/AnyHabit)
