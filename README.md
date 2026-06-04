@@ -23,9 +23,9 @@
 <details>
 <summary><b>🚀 Click to see Recent Updates (Changelog)</b></summary>
 
-#### [v1.1.0] - Latest Release
+#### [v1.2.0] - Latest Release
 - **Added:** Data Export
-- [Full Changelog](https://github.com/Sparths/AnyHabit/compare/v1.0.0...v1.1.0)
+- [Full Changelog](https://github.com/Sparths/AnyHabit/compare/v1.1.0...v1.2.0)
 
 #### [v1.0.0] - Multi User
 - **Added:** Multi User Support
