@@ -1,5 +1,13 @@
-import { useEffect, useState } from 'react';
-import { fetchCurrentUserApi, loginApi, logoutApi, registerApi } from '../services/authApi';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  changePasswordApi,
+  deleteAccountApi,
+  fetchCurrentUserApi,
+  loginApi,
+  logoutApi,
+  registerApi,
+  updatePreferencesApi
+} from '../services/authApi';
 
 export function useAuth() {
   const [user, setUser] = useState(null);
@@ -7,66 +15,78 @@ export function useAuth() {
   const [error, setError] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
 
-  const hydrateUser = async () => {
+  const hydrateUser = useCallback(async () => {
     try {
-      const currentUser = await fetchCurrentUserApi();
-      setUser(currentUser);
+      setUser(await fetchCurrentUserApi());
       setError('');
     } catch (requestError) {
       setUser(null);
+      // A 401 here just means "not signed in yet", which is not an error the
+      // user needs to read on the sign-in screen.
       if (requestError.status !== 401) {
         setError(requestError.message || 'Authentication failed');
       }
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     hydrateUser();
+  }, [hydrateUser]);
+
+  const runAuthAction = useCallback(async (action, fallbackMessage) => {
+    setError('');
+    setIsAuthenticating(true);
+    try {
+      const response = await action();
+      setUser(response.user);
+      return response.user;
+    } catch (requestError) {
+      setError(requestError.message || fallbackMessage);
+      throw requestError;
+    } finally {
+      setIsAuthenticating(false);
+    }
   }, []);
 
-  const login = async (identifier, password) => {
-    setError('');
-    setIsAuthenticating(true);
-    try {
-      const response = await loginApi({ identifier, password });
-      setUser(response.user);
-      return response.user;
-    } catch (requestError) {
-      const errorMsg = requestError.message || 'Login failed. Please check your credentials.';
-      setError(errorMsg);
-      throw requestError;
-    } finally {
-      setIsAuthenticating(false);
-    }
-  };
+  const login = useCallback(
+    (identifier, password) =>
+      runAuthAction(
+        () => loginApi({ identifier, password }),
+        'Sign-in failed. Please check your credentials.'
+      ),
+    [runAuthAction]
+  );
 
-  const register = async (username, email, password) => {
-    setError('');
-    setIsAuthenticating(true);
-    try {
-      const response = await registerApi({ username, email, password });
-      setUser(response.user);
-      return response.user;
-    } catch (requestError) {
-      const errorMsg = requestError.message || 'Registration failed. Please try again.';
-      setError(errorMsg);
-      throw requestError;
-    } finally {
-      setIsAuthenticating(false);
-    }
-  };
+  const register = useCallback(
+    (username, email, password) =>
+      runAuthAction(() => registerApi({ username, email, password }), 'Registration failed. Please try again.'),
+    [runAuthAction]
+  );
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       await logoutApi();
-    } catch (error) {
-      console.error(error);
+    } catch {
+      // The cookie may already be gone; clearing local state is what matters.
     }
     setUser(null);
     setError('');
-  };
+  }, []);
+
+  const updatePreferences = useCallback(async (payload) => {
+    const updated = await updatePreferencesApi(payload);
+    setUser(updated);
+    return updated;
+  }, []);
+
+  const changePassword = useCallback((payload) => changePasswordApi(payload), []);
+
+  const deleteAccount = useCallback(async (confirmUsername) => {
+    await deleteAccountApi(confirmUsername);
+    setUser(null);
+  }, []);
 
   return {
     user,
@@ -77,6 +97,9 @@ export function useAuth() {
     login,
     register,
     logout,
+    updatePreferences,
+    changePassword,
+    deleteAccount,
     refreshUser: hydrateUser
   };
 }

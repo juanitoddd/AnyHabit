@@ -1,42 +1,29 @@
 import {
-  Target,
+  Archive,
+  ArchiveRestore,
   Calendar,
-  PlusCircle,
   CheckCircle2,
-  RotateCcw,
+  Clock,
+  Menu,
   Pause,
-  Play,
   Pencil,
-  Trash2,
-  Menu
+  Play,
+  PlusCircle,
+  RotateCcw,
+  Target,
+  Trash2
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { TRACKER_COLOR_HEX } from '../../constants/tracker';
+import { formatDateTime } from '../../utils/date';
+import { formatScheduleLabel } from '../../utils/tracker';
 
-const PERIOD_LABELS = {
-  day: { singular: 'day', plural: 'days' },
-  week: { singular: 'week', plural: 'weeks' },
-  month: { singular: 'month', plural: 'months' },
-  year: { singular: 'year', plural: 'years' }
-};
-
-const formatScheduleLabel = (tracker) => {
-  const interval = Math.max(1, Number(tracker.units_per_interval || 1));
-  const period = PERIOD_LABELS[tracker.units_per] || PERIOD_LABELS.day;
-  const periodLabel = interval === 1 ? period.singular : period.plural;
-
-  if (tracker.type === 'boolean') {
-    return interval === 1
-      ? `${period.singular.charAt(0).toUpperCase() + period.singular.slice(1)} Habit`
-      : `Habit every ${interval} ${periodLabel}`;
-  }
-
-  return `${tracker.units_per_amount} ${tracker.unit} / ${interval} ${periodLabel}`;
-};
 
 function TrackerHeader({
   selectedTracker,
   canManageTracker,
   dailyProgress,
+  effectiveStartDate,
   setIsSidebarOpen,
   setSelectedCategory,
   setIsLogModalOpen,
@@ -44,151 +31,205 @@ function TrackerHeader({
   onQuickBooleanLog,
   handleResetTracker,
   toggleTrackerStatus,
+  archiveTracker,
+  unarchiveTracker,
   openTrackerModal,
   deleteTracker
 }) {
   const navigate = useNavigate();
-  const ownerOnlyButtonClass = canManageTracker
+  const isArchived = Boolean(selectedTracker.archived_at);
+  const accent = TRACKER_COLOR_HEX[selectedTracker.color];
+
+  const ownerOnlyClass = canManageTracker
     ? 'bg-white border border-gray-200 text-stone-700 hover:bg-gray-50'
     : 'bg-stone-100 border border-stone-200 text-stone-400 cursor-not-allowed';
 
+  const category = (selectedTracker.category || 'General').trim() || 'General';
+  const hasRestarted =
+    effectiveStartDate && new Date(effectiveStartDate).getTime() !== new Date(selectedTracker.start_date).getTime();
+
   return (
-    <header className="px-4 md:px-10 pt-6 md:pt-10 pb-6 flex flex-col">
-      <div className="flex flex-col xl:flex-row justify-between items-start w-full gap-4">
-        <div>
-          <div className="flex items-center gap-3 mb-1 flex-wrap">
-            <button onClick={() => setIsSidebarOpen(true)} className="md:hidden text-stone-500 hover:text-stone-900 mr-1">
+    <header className="flex flex-col px-4 pb-6 pt-6 md:px-10 md:pt-10">
+      <div className="flex w-full flex-col items-start justify-between gap-4 xl:flex-row">
+        <div className="min-w-0">
+          <div className="mb-1 flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => setIsSidebarOpen(true)}
+              className="mr-1 text-stone-500 hover:text-stone-900 md:hidden"
+              aria-label="Open navigation"
+            >
               <Menu size={24} />
             </button>
 
-            <h2 className="text-2xl md:text-3xl font-bold tracking-tight">{selectedTracker.name}</h2>
+            {accent && (
+              <span
+                className="h-3 w-3 shrink-0 rounded-full"
+                style={{ backgroundColor: accent }}
+                aria-hidden="true"
+              />
+            )}
+
+            <h1 className="text-2xl font-bold tracking-tight md:text-3xl">{selectedTracker.name}</h1>
+
             <button
               type="button"
               onClick={() => {
-                const nextCategory = (selectedTracker.category || 'General').trim() || 'General';
-                setSelectedCategory(nextCategory);
-                navigate(`/category/${encodeURIComponent(nextCategory)}`);
+                setSelectedCategory(category);
+                navigate(`/category/${encodeURIComponent(category)}`);
               }}
-              className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-stone-100 text-stone-600 hover:bg-stone-200 transition-colors"
+              className="rounded-md bg-stone-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-stone-600 transition-colors hover:bg-stone-200"
             >
-              {(selectedTracker.category || 'General').trim() || 'General'}
+              {category}
             </button>
-            <span
-              className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-stone-100 text-stone-800"
-            >
+
+            <span className="rounded-md bg-stone-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-stone-800">
               {selectedTracker.type}
             </span>
+
             {selectedTracker.group_id && (
-              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700">
-                Shared {selectedTracker.participant_count ? `· ${selectedTracker.participant_count} members` : ''}
+              <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                Shared{selectedTracker.participant_count ? ` · ${selectedTracker.participant_count} members` : ''}
               </span>
             )}
-            {!selectedTracker.is_active && (
-              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-gray-100 text-gray-500 uppercase tracking-wider">
-                Stopped
+
+            {isArchived && (
+              <span className="rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-700">
+                Archived
+              </span>
+            )}
+
+            {!selectedTracker.is_active && !isArchived && (
+              <span className="rounded-md bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                Paused
               </span>
             )}
           </div>
 
-          <div className="flex flex-col gap-1 mt-3">
+          {selectedTracker.description && (
+            <p className="mt-2 max-w-2xl whitespace-pre-wrap text-sm leading-6 text-stone-600">
+              {selectedTracker.description}
+            </p>
+          )}
+
+          <div className="mt-3 flex flex-col gap-1">
             <p className="flex items-center gap-2 text-sm text-gray-500">
-              <Target size={14} />
+              <Target size={14} className="shrink-0" />
               {selectedTracker.type === 'boolean'
                 ? formatScheduleLabel(selectedTracker)
                 : selectedTracker.type === 'quit'
-                  ? `Avoid ${formatScheduleLabel(selectedTracker)}`
+                  ? `Avoiding ${formatScheduleLabel(selectedTracker)}`
                   : `Goal: ${formatScheduleLabel(selectedTracker)}`}
             </p>
+
             <p className="flex items-center gap-2 text-sm text-gray-500">
-              <Calendar size={14} />
-              Started:{' '}
-              {new Date(
-                selectedTracker.start_date.endsWith('Z')
-                  ? selectedTracker.start_date
-                  : `${selectedTracker.start_date}Z`
-              ).toLocaleDateString()}
-              &ensp;
-              {new Date(
-                selectedTracker.start_date.endsWith('Z')
-                  ? selectedTracker.start_date
-                  : `${selectedTracker.start_date}Z`
-              ).toLocaleTimeString()}
+              <Calendar size={14} className="shrink-0" />
+              Started {formatDateTime(selectedTracker.start_date)}
             </p>
+
+            {/* After a relapse the two dates diverge; showing both makes the
+                reset legible instead of looking like lost history. */}
+            {hasRestarted && (
+              <p className="flex items-center gap-2 text-sm text-gray-500">
+                <Clock size={14} className="shrink-0" />
+                Current run since {formatDateTime(effectiveStartDate)}
+              </p>
+            )}
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2 w-full xl:w-auto">
-          {selectedTracker.type === 'build' && (
+        <div className="flex w-full flex-wrap gap-2 xl:w-auto">
+          {!isArchived && selectedTracker.type === 'build' && (
             <button
               onClick={() => {
-                setLogFormData({ amount: 1, timestamp: new Date().toISOString() });
+                setLogFormData({ amount: 1, note: '', timestamp: new Date().toISOString() });
                 setIsLogModalOpen(true);
               }}
-              className="flex items-center gap-2 px-4 py-2 bg-stone-900 text-white hover:bg-stone-800 rounded-xl text-sm font-medium transition-colors mr-2"
+              className="flex items-center gap-2 rounded-xl bg-stone-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-stone-800"
             >
-              <PlusCircle size={16} /> Log Activity
+              <PlusCircle size={16} /> Log activity
             </button>
           )}
-          {selectedTracker.type === 'boolean' && dailyProgress.total < dailyProgress.target && (
+
+          {!isArchived && selectedTracker.type === 'boolean' && dailyProgress.total < dailyProgress.target && (
             <button
               onClick={onQuickBooleanLog}
-              className="flex items-center gap-2 px-4 py-2 bg-stone-900 text-white hover:bg-stone-800 rounded-xl text-sm font-medium transition-colors mr-2"
+              className="flex items-center gap-2 rounded-xl bg-stone-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-stone-800"
             >
-              <CheckCircle2 size={16} /> Mark as Done
+              <CheckCircle2 size={16} /> Mark as done
             </button>
           )}
-          {selectedTracker.type === 'quit' && (
+
+          {!isArchived && selectedTracker.type === 'quit' && (
             <button
               onClick={() => handleResetTracker(selectedTracker.id)}
-              className="flex items-center gap-2 px-4 py-2 bg-stone-900 text-white hover:bg-stone-800 rounded-xl text-sm font-medium transition-colors mr-2"
+              className="flex items-center gap-2 rounded-xl bg-stone-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-stone-800"
             >
-              <RotateCcw size={16} /> Log Relapse
+              <RotateCcw size={16} /> Log relapse
             </button>
           )}
+
+          {!isArchived && (
+            <button
+              onClick={() => canManageTracker && toggleTrackerStatus(selectedTracker)}
+              disabled={!canManageTracker}
+              title={!canManageTracker ? 'Only the owner can do this' : undefined}
+              className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${ownerOnlyClass}`}
+            >
+              {selectedTracker.is_active ? (
+                <>
+                  <Pause size={16} /> Pause
+                </>
+              ) : (
+                <>
+                  <Play size={16} /> Resume
+                </>
+              )}
+            </button>
+          )}
+
           <button
-            onClick={() => {
-              if (canManageTracker) {
-                toggleTrackerStatus(selectedTracker);
-              }
-            }}
+            onClick={() =>
+              canManageTracker &&
+              (isArchived ? unarchiveTracker(selectedTracker.id) : archiveTracker(selectedTracker.id))
+            }
             disabled={!canManageTracker}
-            title={!canManageTracker ? 'Owner only' : undefined}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${ownerOnlyButtonClass}`}
+            title={
+              !canManageTracker
+                ? 'Only the owner can do this'
+                : isArchived
+                  ? 'Bring this tracker back'
+                  : 'Hide this tracker but keep all of its history'
+            }
+            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${ownerOnlyClass}`}
           >
-            {selectedTracker.is_active ? (
+            {isArchived ? (
               <>
-                <Pause size={16} /> Pause
+                <ArchiveRestore size={16} /> Restore
               </>
             ) : (
               <>
-                <Play size={16} /> Resume
+                <Archive size={16} /> Archive
               </>
             )}
           </button>
+
           <button
-            onClick={() => {
-              if (canManageTracker) {
-                openTrackerModal(selectedTracker);
-              }
-            }}
+            onClick={() => canManageTracker && openTrackerModal(selectedTracker)}
             disabled={!canManageTracker}
-            title={!canManageTracker ? 'Owner only' : undefined}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${ownerOnlyButtonClass}`}
+            title={!canManageTracker ? 'Only the owner can do this' : undefined}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${ownerOnlyClass}`}
           >
             <Pencil size={16} /> Edit
           </button>
+
           <button
-            onClick={() => {
-              if (canManageTracker) {
-                deleteTracker(selectedTracker.id);
-              }
-            }}
+            onClick={() => canManageTracker && deleteTracker(selectedTracker.id)}
             disabled={!canManageTracker}
-            title={!canManageTracker ? 'Owner only' : undefined}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+            title={!canManageTracker ? 'Only the owner can do this' : 'Deletes all history too'}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
               canManageTracker
-                ? 'bg-white border border-gray-200 text-stone-900 hover:bg-gray-50'
-                : 'bg-stone-100 border border-stone-200 text-stone-400 cursor-not-allowed'
+                ? 'border border-gray-200 bg-white text-rose-600 hover:bg-rose-50'
+                : 'cursor-not-allowed border border-stone-200 bg-stone-100 text-stone-400'
             }`}
           >
             <Trash2 size={16} /> Delete

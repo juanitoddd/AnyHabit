@@ -1,26 +1,54 @@
+"""Password hashing, JWT issuing, auth cookies and login throttling."""
+
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
 import hashlib
 import os
 import secrets
+import threading
+import time
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import jwt
-from fastapi import HTTPException, status
-from fastapi import Response
+from fastapi import HTTPException, Request, Response, status
 
 PASSWORD_ITERATIONS = int(os.environ.get("ANYHABIT_PASSWORD_ITERATIONS", "200000"))
 TOKEN_TTL_SECONDS = int(os.environ.get("ANYHABIT_TOKEN_TTL_SECONDS", str(60 * 60 * 24 * 7)))
-SECRET_KEY = os.environ.get("ANYHABIT_SECRET_KEY", "anyhabit-development-secret")
 JWT_ALGORITHM = os.environ.get("ANYHABIT_JWT_ALGORITHM", "HS256")
 ACCESS_COOKIE_NAME = os.environ.get("ANYHABIT_ACCESS_COOKIE_NAME", "anyhabit_access_token")
-COOKIE_SECURE = os.environ.get("ANYHABIT_COOKIE_SECURE", "true").strip().lower() in {"1", "true", "yes", "on"}
-COOKIE_SAMESITE = os.environ.get("ANYHABIT_COOKIE_SAMESITE", "lax")
-COOKIE_DOMAIN = os.environ.get("ANYHABIT_COOKIE_DOMAIN")
-BOOTSTRAP_EMAIL = os.environ.get("ANYHABIT_BOOTSTRAP_EMAIL", "owner@anyhabit.local")
+
+# "auto" is the default and the only setting that works out of the box for both
+# a plain-HTTP home server and an HTTPS reverse proxy: the flag is set per
+# response based on how the request actually arrived.  A Secure cookie sent
+# over plain HTTP is silently dropped by the browser, which used to leave
+# LAN users unable to log in at all.
+COOKIE_SECURE_MODE = os.environ.get("ANYHABIT_COOKIE_SECURE", "auto").strip().lower()
+COOKIE_SAMESITE = os.environ.get("ANYHABIT_COOKIE_SAMESITE", "lax").strip().lower()
+COOKIE_DOMAIN = os.environ.get("ANYHABIT_COOKIE_DOMAIN") or None
+
+BOOTSTRAP_EMAIL = os.environ.get("ANYHABIT_BOOTSTRAP_EMAIL", "owner@anyhabit.local").strip().lower()
 BOOTSTRAP_USERNAME = os.environ.get("ANYHABIT_BOOTSTRAP_USERNAME", "owner")
 BOOTSTRAP_PASSWORD = os.environ.get("ANYHABIT_BOOTSTRAP_PASSWORD", "anyhabit")
+
+DEFAULT_DEV_SECRET = "anyhabit-development-secret"
+SECRET_KEY = os.environ.get("ANYHABIT_SECRET_KEY", "").strip() or DEFAULT_DEV_SECRET
+
+LOGIN_MAX_ATTEMPTS = int(os.environ.get("ANYHABIT_LOGIN_MAX_ATTEMPTS", "10"))
+LOGIN_LOCKOUT_SECONDS = int(os.environ.get("ANYHABIT_LOGIN_LOCKOUT_SECONDS", "300"))
+
+
+def is_using_default_secret() -> bool:
+    """Whether the JWT signing key is still the shipped placeholder.
+
+    Surfaced through ``/health`` so an operator can notice before it matters.
+    """
+    return SECRET_KEY == DEFAULT_DEV_SECRET
+
+
+# ---------------------------------------------------------------------------
+# Passwords
+# ---------------------------------------------------------------------------
 
 
 def hash_password(password: str, salt: str | None = None) -> str:
@@ -32,19 +60,28 @@ def hash_password(password: str, salt: str | None = None) -> str:
 def verify_password(password: str, password_hash: str) -> bool:
     try:
         salt_hex, stored_hash = password_hash.split("$", 1)
+    except (ValueError, AttributeError):
+        return False
+
+    try:
+        candidate = hash_password(password, salt_hex).split("$", 1)[1]
     except ValueError:
         return False
 
-    return secrets.compare_digest(hash_password(password, salt_hex).split("$", 1)[1], stored_hash)
+    return secrets.compare_digest(candidate, stored_hash)
+
+
+# ---------------------------------------------------------------------------
+# Tokens
+# ---------------------------------------------------------------------------
 
 
 def create_access_token(payload: dict[str, Any]) -> str:
     issued_at = datetime.now(timezone.utc)
-    expires_at = issued_at + timedelta(seconds=TOKEN_TTL_SECONDS)
     token_payload = {
         **payload,
         "iat": issued_at,
-        "exp": expires_at,
+        "exp": issued_at + timedelta(seconds=TOKEN_TTL_SECONDS),
         "jti": secrets.token_urlsafe(8),
     }
     return jwt.encode(token_payload, SECRET_KEY, algorithm=JWT_ALGORITHM)
@@ -54,29 +91,115 @@ def decode_access_token(token: str) -> dict[str, Any]:
     try:
         return jwt.decode(token, SECRET_KEY, algorithms=[JWT_ALGORITHM])
     except jwt.ExpiredSignatureError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication token expired") from exc
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Your session expired. Please sign in again."
+        ) from exc
     except jwt.InvalidTokenError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication token") from exc
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication token"
+        ) from exc
 
 
-def set_auth_cookie(response: Response, token: str) -> None:
+# ---------------------------------------------------------------------------
+# Cookies
+# ---------------------------------------------------------------------------
+
+
+def _request_is_https(request: Request | None) -> bool:
+    if request is None:
+        return False
+
+    # Trust the proxy header first: nginx terminates TLS and forwards over
+    # plain HTTP, so request.url.scheme alone would always read "http".
+    forwarded_proto = request.headers.get("x-forwarded-proto", "")
+    if forwarded_proto:
+        return forwarded_proto.split(",")[0].strip().lower() == "https"
+
+    return request.url.scheme == "https"
+
+
+def should_use_secure_cookie(request: Request | None) -> bool:
+    if COOKIE_SECURE_MODE in {"1", "true", "yes", "on"}:
+        return True
+    if COOKIE_SECURE_MODE in {"0", "false", "no", "off"}:
+        return False
+    return _request_is_https(request)
+
+
+def set_auth_cookie(response: Response, token: str, request: Request | None = None) -> None:
     response.set_cookie(
         key=ACCESS_COOKIE_NAME,
         value=token,
         max_age=TOKEN_TTL_SECONDS,
         httponly=True,
-        secure=COOKIE_SECURE,
+        secure=should_use_secure_cookie(request),
         samesite=COOKIE_SAMESITE,
         domain=COOKIE_DOMAIN,
         path="/",
     )
 
 
-def clear_auth_cookie(response: Response) -> None:
+def clear_auth_cookie(response: Response, request: Request | None = None) -> None:
     response.delete_cookie(
         key=ACCESS_COOKIE_NAME,
         domain=COOKIE_DOMAIN,
         path="/",
         samesite=COOKIE_SAMESITE,
-        secure=COOKIE_SECURE,
+        secure=should_use_secure_cookie(request),
     )
+
+
+# ---------------------------------------------------------------------------
+# Login throttling
+# ---------------------------------------------------------------------------
+
+
+class LoginThrottle:
+    """Per-identifier failed-login counter with a cooling-off period.
+
+    Deliberately in-process: AnyHabit runs as a single container, and this only
+    needs to blunt password guessing, not survive a restart.
+    """
+
+    def __init__(self, max_attempts: int, lockout_seconds: int) -> None:
+        self._max_attempts = max_attempts
+        self._lockout_seconds = lockout_seconds
+        self._failures: dict[str, tuple[int, float]] = {}
+        self._lock = threading.Lock()
+
+    def _prune(self, now: float) -> None:
+        expired = [key for key, (_, last_seen) in self._failures.items() if now - last_seen > self._lockout_seconds]
+        for key in expired:
+            self._failures.pop(key, None)
+
+    def seconds_remaining(self, key: str) -> int:
+        if self._max_attempts <= 0:
+            return 0
+
+        now = time.monotonic()
+        with self._lock:
+            self._prune(now)
+            attempts, last_seen = self._failures.get(key, (0, 0.0))
+
+        if attempts < self._max_attempts:
+            return 0
+        return max(0, int(self._lockout_seconds - (now - last_seen)))
+
+    def record_failure(self, key: str) -> None:
+        now = time.monotonic()
+        with self._lock:
+            self._prune(now)
+            attempts, _ = self._failures.get(key, (0, 0.0))
+            self._failures[key] = (attempts + 1, now)
+
+    def reset(self, key: str) -> None:
+        with self._lock:
+            self._failures.pop(key, None)
+
+
+login_throttle = LoginThrottle(LOGIN_MAX_ATTEMPTS, LOGIN_LOCKOUT_SECONDS)
+
+
+def throttle_key(request: Request | None, identifier: str) -> str:
+    client_host = request.client.host if request and request.client else "unknown"
+    return f"{client_host}:{identifier.strip().lower()}"

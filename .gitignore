@@ -24,3 +24,6 @@ package-lock.json
 # Build outputs
 dist/
 build/
+# Test artefacts
+tests/.downloads/
+tests/*.png

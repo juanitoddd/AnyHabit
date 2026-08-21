@@ -1,49 +1,41 @@
-import { API_FETCH_OPTIONS, API_URL } from '../config/api';
+import { apiClient } from './apiClient';
 
-async function requestExport(path, options) {
-  const headers = {
-    ...(options?.headers || {})
-  };
+export async function exportDataApi({ data_type = 'all', format = 'json', tracker_ids = null } = {}) {
+  const params = new URLSearchParams({ data_type, format });
 
-  const response = await fetch(`${API_URL}${path}`, {
-    ...API_FETCH_OPTIONS,
-    ...options,
-    headers
-  });
-
-  if (!response.ok) {
-    const message = await response.text();
-    let errorMessage = message || `Request failed: ${response.status}`;
-
-    try {
-      const parsed = JSON.parse(message);
-      errorMessage = parsed.detail || parsed.message || errorMessage;
-    } catch {
-      // keep plain-text response
-    }
-
-    const error = new Error(errorMessage);
-    error.status = response.status;
-    throw error;
-  }
-
-  // Return the raw text response (could be JSON or CSV)
-  return response.text();
-}
-
-export async function exportDataApi(options) {
-  const { data_type = 'all', format = 'json', tracker_ids = null } = options;
-
-  const params = new URLSearchParams({
-    data_type,
-    format
-  });
-
-  if (tracker_ids && Array.isArray(tracker_ids)) {
+  if (Array.isArray(tracker_ids)) {
     tracker_ids.forEach((id) => params.append('tracker_id', id));
   }
 
-  return requestExport(`/export/?${params.toString()}`, {
-    method: 'GET'
-  });
+  return apiClient.get(`/export/?${params.toString()}`, { parse: 'text' });
+}
+
+/**
+ * Restore a JSON backup.
+ *
+ * `dryRun` asks the server what *would* happen without writing anything, so the
+ * UI can show a preview before the user commits to a merge or a replace.
+ */
+export async function importDataApi(file, { mode = 'merge', dryRun = true, confirm = '' } = {}) {
+  const params = new URLSearchParams({ mode, dry_run: String(dryRun) });
+  if (confirm) params.set('confirm', confirm);
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  return apiClient.upload(`/import/?${params.toString()}`, formData);
+}
+
+/** Hand the browser a file without leaving the page. */
+export function downloadTextFile(contents, filename, mimeType) {
+  const blob = new Blob([contents], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }

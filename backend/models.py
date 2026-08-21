@@ -1,14 +1,19 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+
 from .database import Base
 from .time_utils import utcnow
 
+
 class Tracker(Base):
     __tablename__ = "trackers"
+    __table_args__ = (Index("ix_trackers_owner_archived", "owner_id", "archived_at"),)
 
     id = Column(Integer, primary_key=True, index=True)
     owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     group_id = Column(Integer, ForeignKey("groups.id", ondelete="SET NULL"), nullable=True, index=True)
     name = Column(String, index=True)
+    description = Column(Text, default="")
+    color = Column(String, default="")
     category = Column(String, default="General", index=True)
     type = Column(String)
     start_date = Column(DateTime(timezone=True), default=utcnow)
@@ -16,11 +21,12 @@ class Tracker(Base):
     impact_amount = Column(Float, default=0.0)
     impact_unit = Column(String, default="$")
     impact_per = Column(String)
-    unit = Column(String) 
+    unit = Column(String)
     units_per_amount = Column(Float, default=0.0)
     units_per = Column(String)
     units_per_interval = Column(Integer, default=1)
     is_active = Column(Boolean, default=True)
+    archived_at = Column(DateTime(timezone=True), nullable=True)
     visibility = Column(String, default="private", index=True)
 
 
@@ -33,6 +39,12 @@ class User(Base):
     password_hash = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow)
     is_active = Column(Boolean, default=True)
+
+    # Presentation preferences.  ``timezone`` is the IANA zone the user's day
+    # boundaries are computed in — without it every streak would roll over at
+    # UTC midnight regardless of where the user actually lives.
+    timezone = Column(String, default="UTC")
+    week_start = Column(String, default="monday")
 
 
 class Group(Base):
@@ -69,6 +81,7 @@ class TrackerParticipant(Base):
 
 class JournalEntry(Base):
     __tablename__ = "journal_entries"
+    __table_args__ = (Index("ix_journal_entries_tracker_user", "tracker_id", "user_id"),)
 
     id = Column(Integer, primary_key=True, index=True)
     tracker_id = Column(Integer, ForeignKey("trackers.id", ondelete="CASCADE"))
@@ -79,15 +92,16 @@ class JournalEntry(Base):
     is_relapse = Column(Boolean, default=False)
 
 
-
 class HabitLog(Base):
     __tablename__ = "habit_logs"
+    __table_args__ = (Index("ix_habit_logs_tracker_user", "tracker_id", "user_id"),)
 
     id = Column(Integer, primary_key=True, index=True)
     tracker_id = Column(Integer, ForeignKey("trackers.id", ondelete="CASCADE"))
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
     timestamp = Column(DateTime(timezone=True), default=utcnow)
     amount = Column(Float, default=1.0)
+    note = Column(Text, default="")
 
 
 class UserDashboardState(Base):
@@ -100,3 +114,18 @@ class UserDashboardState(Base):
     widgets_json = Column(Text, default="[]")
     layouts_json = Column(Text, default="{}")
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class SchemaMigration(Base):
+    """Ledger of applied migrations.
+
+    Its presence is what lets the runner tell a fresh install from an upgrade,
+    which in turn decides whether a safety backup is worth taking.
+    """
+
+    __tablename__ = "schema_migrations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, index=True, nullable=False)
+    applied_at = Column(DateTime(timezone=True), default=utcnow)
+    app_version = Column(String, default="")

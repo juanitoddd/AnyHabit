@@ -1,23 +1,26 @@
-import { Medal, Users, Flame } from 'lucide-react';
+import { Flame, Medal, Users } from 'lucide-react';
+import { formatRelative } from '../../utils/date';
 
 function TrackerLeaderboard({ shareStats }) {
-  if (!shareStats) return null;
+  if (!shareStats || !shareStats.leaderboard?.length) return null;
 
   return (
-    <section className="mb-8 rounded-3xl border border-gray-100 bg-white p-5 md:p-6 shadow-sm">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between mb-5">
+    <section className="mb-8 rounded-3xl border border-gray-100 bg-white p-5 shadow-sm md:p-6">
+      <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <div className="flex items-center gap-2 text-sm font-semibold text-stone-700">
-            <Users size={16} /> Shared Progress
-          </div>
-          <p className="mt-1 text-xs text-gray-400">Compare the people assigned to this tracker.</p>
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-stone-700">
+            <Users size={16} /> Shared progress
+          </h2>
+          <p className="mt-1 text-xs text-gray-400">Everyone assigned to this tracker.</p>
         </div>
+
         {shareStats.groupStreakStats && (
           <div className="rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-700">
             <div className="flex items-center gap-2 font-semibold text-stone-900">
-              <Flame size={16} /> Group streak: {shareStats.groupStreakStats.current}
+              <Flame size={16} /> Group streak: {shareStats.groupStreakStats.current}{' '}
+              <span className="font-normal text-stone-500">{shareStats.groupStreakStats.periodLabel}</span>
             </div>
-            <div className="mt-1 text-xs text-stone-500">Rule: {shareStats.groupStreakStats.ruleLabel}</div>
+            <div className="mt-1 text-xs text-stone-500">Counts only when everyone completes the period.</div>
           </div>
         )}
       </div>
@@ -26,35 +29,37 @@ function TrackerLeaderboard({ shareStats }) {
         {shareStats.leaderboard.map((entry, index) => (
           <article key={entry.user.id} className="rounded-3xl border border-gray-100 bg-stone-50 p-4">
             <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2 text-sm font-semibold text-stone-900">
+              <div className="min-w-0">
+                <h3 className="flex items-center gap-2 text-sm font-semibold text-stone-900">
                   <Medal size={16} className={index === 0 ? 'text-amber-500' : 'text-stone-400'} />
-                  {entry.user.username}
-                </div>
-                <p className="mt-1 text-xs text-stone-500">{entry.user.email}</p>
+                  <span className="truncate">{entry.user.username}</span>
+                </h3>
+                <p className="mt-1 text-xs text-stone-500">Last active {formatRelative(entry.lastActivityAt)}</p>
               </div>
-              <div className="text-right">
+              <div className="shrink-0 text-right">
                 <div className="text-2xl font-semibold text-stone-900">{entry.streakStats.current}</div>
-                <div className="text-[11px] uppercase tracking-[0.18em] text-stone-400">{entry.streakStats.periodLabel}</div>
+                <div className="text-[11px] uppercase tracking-[0.18em] text-stone-400">
+                  {entry.streakStats.periodLabel}
+                </div>
               </div>
             </div>
 
-            <div className="mt-4 space-y-3 text-sm text-stone-600">
+            <dl className="mt-4 space-y-3 text-sm text-stone-600">
               <div className="flex items-center justify-between rounded-2xl bg-white px-3 py-2">
-                <span>Progress</span>
-                <span className="font-medium text-stone-900">{entry.dailyProgress.percentage.toFixed(0)}%</span>
+                <dt>Progress</dt>
+                <dd className="font-medium text-stone-900">{entry.dailyProgress.percentage.toFixed(0)}%</dd>
               </div>
               <div className="flex items-center justify-between rounded-2xl bg-white px-3 py-2">
-                <span>Completed</span>
-                <span className="font-medium text-stone-900">
+                <dt>Completed</dt>
+                <dd className="font-medium text-stone-900">
                   {entry.dailyProgress.total.toFixed(1)} / {entry.dailyProgress.target.toFixed(1)}
-                </span>
+                </dd>
               </div>
               <div className="flex items-center justify-between rounded-2xl bg-white px-3 py-2">
-                <span>Impact</span>
-                <span className="font-medium text-stone-900">{entry.currentMath.impactValue}</span>
+                <dt>Longest streak</dt>
+                <dd className="font-medium text-stone-900">{entry.streakStats.longest}</dd>
               </div>
-            </div>
+            </dl>
           </article>
         ))}
       </div>

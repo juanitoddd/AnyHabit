@@ -1,45 +1,16 @@
-import { API_FETCH_OPTIONS, API_URL } from '../config/api';
+import { apiClient } from './apiClient';
 
-async function requestJson(path, options) {
-  const headers = {
-    'Content-Type': 'application/json',
-    ...(options?.headers || {})
-  };
+export const registerApi = (payload) => apiClient.post('/auth/register', payload);
 
-  const response = await fetch(`${API_URL}${path}`, {
-    ...API_FETCH_OPTIONS,
-    ...options,
-    headers
-  });
+export const loginApi = (payload) => apiClient.post('/auth/login', payload);
 
-  if (!response.ok) {
-    const message = await response.text();
-    const error = new Error(message || `Request failed: ${response.status}`);
-    error.status = response.status;
-    throw error;
-  }
+export const fetchCurrentUserApi = () => apiClient.get('/auth/me');
 
-  return response.json();
-}
+export const logoutApi = () => apiClient.post('/auth/logout');
 
-export async function registerApi(payload) {
-  return requestJson('/auth/register', {
-    method: 'POST',
-    body: JSON.stringify(payload)
-  });
-}
+export const updatePreferencesApi = (payload) => apiClient.patch('/auth/me', payload);
 
-export async function loginApi(payload) {
-  return requestJson('/auth/login', {
-    method: 'POST',
-    body: JSON.stringify(payload)
-  });
-}
+export const changePasswordApi = (payload) => apiClient.post('/auth/password', payload);
 
-export async function fetchCurrentUserApi() {
-  return requestJson('/auth/me');
-}
-
-export async function logoutApi() {
-  return requestJson('/auth/logout', { method: 'POST' });
-}
+export const deleteAccountApi = (confirmUsername) =>
+  apiClient.delete(`/auth/me?confirm_username=${encodeURIComponent(confirmUsername)}`);
