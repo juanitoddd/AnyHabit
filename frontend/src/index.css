@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   Base
+   --------------------------------------------------------------------------- */
+
 :root {
   color-scheme: light;
 }
@@ -7,6 +11,33 @@
 body {
   @apply bg-stone-50 text-gray-800;
 }
+
+/* Tailwind v4 ships no scrollbar utilities, and this class was used in several
+   places expecting one. */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Visible keyboard focus. Several controls previously removed the outline
+   without providing a replacement, leaving keyboard users with no cursor. */
+:focus-visible {
+  outline: 2px solid rgba(28, 25, 23, 0.55);
+  outline-offset: 2px;
+  border-radius: 0.375rem;
+}
+
+.theme-dark :focus-visible {
+  outline-color: rgba(226, 232, 240, 0.7);
+}
+
+/* ---------------------------------------------------------------------------
+   Motion
+   --------------------------------------------------------------------------- */
 
 .app-shell,
 .app-sidebar,
@@ -41,13 +72,14 @@ body {
   }
 }
 
-@keyframes pulseSoft {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgba(24, 24, 27, 0.08);
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(-12px);
   }
-  50% {
-    box-shadow: 0 0 0 6px rgba(24, 24, 27, 0.02);
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
@@ -61,9 +93,11 @@ body {
   animation: modalFadeIn 220ms ease-out;
 }
 
-.home-widget-card,
-.rounded-3xl,
-.rounded-2xl {
+.app-toast {
+  animation: toastIn 200ms ease-out;
+}
+
+.home-widget-card {
   transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
 }
 
@@ -80,38 +114,47 @@ body {
   transform: scale(0.985);
 }
 
-.app-shell button:disabled {
-  animation: none;
-}
-
-.widget-drag-handle {
-  transition: background-color 150ms ease, border-color 150ms ease;
-}
-
-.app-shell .bg-stone-900.text-white:hover {
-  animation: pulseSoft 500ms ease-out;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .app-main,
-  .home-page,
-  .app-sidebar,
-  .app-modal-card,
-  .home-widget-card,
-  .app-shell button {
-    animation: none !important;
-    transition: none !important;
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
-.dark-mode {
-  color-scheme: dark;
-}
+/* ---------------------------------------------------------------------------
+   Dark theme
 
-.dark-mode body,
+   The class sits on <html>, so these descendant selectors also reach screens
+   rendered outside the app shell — the sign-in page in particular, which used
+   to stay stubbornly white for dark-mode users.
+   --------------------------------------------------------------------------- */
+
 .theme-dark {
+  color-scheme: dark;
   background-color: #0b1220;
   color: #e5e7eb;
+}
+
+.theme-dark body,
+.theme-dark .app-shell,
+.theme-dark .app-boot {
+  background-color: #0b1220;
+  color: #e5e7eb;
+}
+
+.theme-dark .auth-screen {
+  background: radial-gradient(circle at top left, rgba(30, 41, 59, 0.9), transparent 32%),
+    linear-gradient(135deg, #0b1220 0%, #111827 38%, #0f172a 100%) !important;
+  color: #e5e7eb;
+}
+
+.theme-dark .auth-screen .bg-white\/70,
+.theme-dark .auth-screen .bg-white {
+  background-color: rgba(17, 24, 39, 0.86) !important;
 }
 
 .theme-dark .app-sidebar,
@@ -121,21 +164,26 @@ body {
   background-color: #111827 !important;
 }
 
+.theme-dark .border-white\/60,
 .theme-dark .border-gray-50,
 .theme-dark .border-gray-100,
 .theme-dark .border-gray-200,
-.theme-dark .border-gray-300 {
+.theme-dark .border-gray-300,
+.theme-dark .border-stone-200 {
   border-color: #253042 !important;
 }
 
 .theme-dark .bg-\[\#fcfcfc\],
 .theme-dark .bg-stone-50,
 .theme-dark .bg-gray-50,
-.theme-dark .bg-stone-100 {
+.theme-dark .bg-stone-100,
+.theme-dark .bg-stone-50\/80,
+.theme-dark .bg-gray-100 {
   background-color: #0f172a !important;
 }
 
-.theme-dark .bg-rose-50 {
+.theme-dark .bg-rose-50,
+.theme-dark .bg-rose-50\/40 {
   background-color: #3f1d2e !important;
 }
 
@@ -143,6 +191,15 @@ body {
   background-color: #11332a !important;
 }
 
+.theme-dark .bg-amber-50 {
+  background-color: #3a2c12 !important;
+}
+
+.theme-dark .bg-rose-100 {
+  background-color: #4c2233 !important;
+}
+
+.theme-dark .text-stone-950,
 .theme-dark .text-stone-900,
 .theme-dark .text-stone-800,
 .theme-dark .text-stone-700,
@@ -155,6 +212,27 @@ body {
   color: #e5e7eb !important;
 }
 
+.theme-dark .text-stone-500,
+.theme-dark .text-stone-400 {
+  color: #94a3b8 !important;
+}
+
+.theme-dark .text-rose-600,
+.theme-dark .text-rose-700,
+.theme-dark .text-rose-900 {
+  color: #fb7185 !important;
+}
+
+.theme-dark .text-emerald-600,
+.theme-dark .text-emerald-700,
+.theme-dark .text-emerald-900 {
+  color: #34d399 !important;
+}
+
+.theme-dark .text-amber-700 {
+  color: #fbbf24 !important;
+}
+
 .theme-dark .hover\:bg-gray-50:hover,
 .theme-dark .hover\:bg-gray-100:hover,
 .theme-dark .hover\:bg-stone-100:hover,
@@ -163,17 +241,8 @@ body {
 }
 
 .theme-dark .bg-stone-900,
-.theme-dark .hover\:bg-stone-900:hover,
-.theme-dark .hover\:bg-stone-800:hover {
+.theme-dark .hover\:bg-stone-900:hover {
   background-color: #374151 !important;
-}
-
-.theme-dark .text-rose-600 {
-  color: #fb7185 !important;
-}
-
-.theme-dark .text-emerald-600 {
-  color: #34d399 !important;
 }
 
 .theme-dark .hover\:bg-white:hover,
@@ -181,7 +250,8 @@ body {
 .theme-dark .hover\:bg-stone-50:hover,
 .theme-dark .hover\:bg-stone-100\/60:hover,
 .theme-dark .hover\:bg-stone-100\/70:hover,
-.theme-dark .hover\:bg-stone-200:hover {
+.theme-dark .hover\:bg-stone-200:hover,
+.theme-dark .hover\:bg-rose-50:hover {
   background-color: #1b2433 !important;
 }
 
@@ -189,6 +259,32 @@ body {
   background-color: #1c2433 !important;
   color: #94a3b8 !important;
 }
+
+.theme-dark .bg-white\/80 {
+  background-color: rgba(17, 24, 39, 0.88) !important;
+}
+
+.theme-dark .bg-white\/90 {
+  background-color: rgba(17, 24, 39, 0.94) !important;
+}
+
+.theme-dark .bg-stone-50\/70 {
+  background-color: #1b2433 !important;
+}
+
+.theme-dark .home-page {
+  background-color: #0f172a !important;
+}
+
+/* Empty heatmap cells need to read as "nothing here" against a dark page
+   rather than as a filled square. */
+.theme-dark .bg-stone-100 {
+  background-color: #1e293b !important;
+}
+
+/* ---------------------------------------------------------------------------
+   Dashboard grid
+   --------------------------------------------------------------------------- */
 
 .home-grid .react-grid-item {
   transition: transform 180ms ease;
@@ -213,32 +309,27 @@ body {
   border-color: #253042 !important;
 }
 
+.theme-dark .home-widget-card .widget-drag-handle {
+  border-color: #253042 !important;
+}
+
 .theme-dark .home-grid .react-grid-placeholder {
   background: rgba(148, 163, 184, 0.15);
   border-color: rgba(148, 163, 184, 0.3);
 }
 
-.theme-dark .bg-white\/80 {
-  background-color: rgba(17, 24, 39, 0.88) !important;
-}
-
-.theme-dark .bg-white\/90 {
-  background-color: rgba(17, 24, 39, 0.94) !important;
-}
-
-.theme-dark .bg-stone-50\/70 {
-  background-color: #1b2433 !important;
-}
-
-.theme-dark .home-page {
-  background-color: #0f172a !important;
-}
-
-.theme-dark .home-widget-card .widget-drag-handle {
-  border-color: #253042 !important;
-}
-
 .theme-dark .home-grid .react-resizable-handle::after {
   border-right-color: #64748b !important;
   border-bottom-color: #64748b !important;
+}
+
+/* Recharts renders raw SVG, so its axes need an explicit dark treatment. */
+.theme-dark .recharts-cartesian-grid line {
+  stroke: #253042 !important;
+}
+
+.theme-dark .recharts-default-tooltip {
+  background-color: #111827 !important;
+  border-color: #253042 !important;
+  color: #e5e7eb !important;
 }

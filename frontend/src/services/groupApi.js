@@ -1,45 +1,20 @@
-import { API_FETCH_OPTIONS, API_URL } from '../config/api';
+import { apiClient } from './apiClient';
 
-async function requestJson(path, options) {
-  const headers = {
-    'Content-Type': 'application/json',
-    ...(options?.headers || {})
-  };
+export const fetchGroupsApi = () => apiClient.get('/groups/');
 
-  const response = await fetch(`${API_URL}${path}`, {
-    ...API_FETCH_OPTIONS,
-    ...options,
-    headers
-  });
+export const fetchGroupApi = (groupId) => apiClient.get(`/groups/${groupId}`);
 
-  if (!response.ok) {
-    const message = await response.text();
-    const error = new Error(message || `Request failed: ${response.status}`);
-    error.status = response.status;
-    throw error;
-  }
+export const createGroupApi = (payload) => apiClient.post('/groups/', payload);
 
-  return response.json();
-}
+export const joinGroupApi = (payload) => apiClient.post('/groups/join', payload);
 
-export async function fetchGroupsApi() {
-  return requestJson('/groups/');
-}
+export const renameGroupApi = (groupId, name) => apiClient.patch(`/groups/${groupId}`, { name });
 
-export async function createGroupApi(payload) {
-  return requestJson('/groups/', {
-    method: 'POST',
-    body: JSON.stringify(payload)
-  });
-}
+export const rotateJoinCodeApi = (groupId) => apiClient.post(`/groups/${groupId}/rotate-code`);
 
-export async function joinGroupApi(payload) {
-  return requestJson('/groups/join', {
-    method: 'POST',
-    body: JSON.stringify(payload)
-  });
-}
+export const removeGroupMemberApi = (groupId, userId) =>
+  apiClient.delete(`/groups/${groupId}/members/${userId}`);
 
-export async function fetchGroupApi(groupId) {
-  return requestJson(`/groups/${groupId}`);
-}
+export const leaveGroupApi = (groupId) => apiClient.post(`/groups/${groupId}/leave`);
+
+export const deleteGroupApi = (groupId) => apiClient.delete(`/groups/${groupId}`);

@@ -1,0 +1,25 @@
+{
+  "name": "AnyHabit",
+  "short_name": "AnyHabit",
+  "description": "Self-hosted habit tracking for building good routines and quitting bad ones.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#fcfcfc",
+  "theme_color": "#111827",
+  "icons": [
+    {
+      "src": "/AnyHabit.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/AnyHabit.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

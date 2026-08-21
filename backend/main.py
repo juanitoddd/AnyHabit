@@ -1,16 +1,55 @@
+"""FastAPI application entry point."""
+
+from __future__ import annotations
+
+import logging
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from . import models
-from .database import engine
-from .migrations import run_startup_migrations
-from .routers import auth_router, dashboard_router, export_router, groups_router, journals_router, logs_router, trackers_router
+from fastapi.responses import JSONResponse
 
-models.Base.metadata.create_all(bind=engine)
-run_startup_migrations()
+from . import schemas
+from .migrations import prepare_database
+from .routers import (
+    auth_router,
+    dashboard_router,
+    export_router,
+    groups_router,
+    import_router,
+    journals_router,
+    logs_router,
+    trackers_router,
+)
+from .security import is_using_default_secret
+from .version import APP_NAME, APP_VERSION, SCHEMA_VERSION
 
-app = FastAPI(title="AnyHabit API")
+logging.basicConfig(
+    level=os.environ.get("ANYHABIT_LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger("anyhabit")
+
+# Creates the schema, applies any pending migrations and — on a real upgrade —
+# writes a rollback snapshot first.  Runs before the app accepts traffic.
+MIGRATION_REPORT = prepare_database()
+
+if is_using_default_secret():
+    logger.warning(
+        "ANYHABIT_SECRET_KEY is not set, so sessions are signed with the built-in development key. "
+        "Set it in your .env before exposing AnyHabit beyond your own machine."
+    )
+
+app = FastAPI(
+    title=f"{APP_NAME} API",
+    version=APP_VERSION,
+    description=(
+        "Self-hosted habit tracking. Every endpoint below is authenticated with the "
+        "session cookie set by /auth/login, or with an `Authorization: Bearer` token."
+    ),
+)
 
 
 def _get_cors_origins() -> list[str]:
@@ -21,19 +60,61 @@ def _get_cors_origins() -> list[str]:
     return [origin.strip() for origin in raw_origins.split(",") if origin.strip() and origin.strip() != "*"]
 
 
-cors_origins = _get_cors_origins()
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
+    allow_origins=_get_cors_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"],
 )
 
-@app.get("/")
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(_request: Request, exc: RequestValidationError):
+    """Turn Pydantic's nested error payload into one readable sentence.
+
+    The default shape renders in the UI as a wall of JSON; the API contract is
+    unchanged for machine clients because ``errors`` still carries the detail.
+    """
+    messages = []
+    for error in exc.errors():
+        field = ".".join(str(part) for part in error.get("loc", ()) if part not in {"body", "query", "path"})
+        message = error.get("msg", "Invalid value")
+        message = message.removeprefix("Value error, ")
+        messages.append(f"{field}: {message}" if field else message)
+
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        # jsonable_encoder because Pydantic puts the original exception object
+        # in each error's "ctx", which json.dumps cannot serialise.
+        content=jsonable_encoder(
+            {"detail": "; ".join(messages) or "Invalid request", "errors": exc.errors()}
+        ),
+    )
+
+
+@app.get("/", tags=["system"])
 def read_root():
-    return {"message": "Welcome to AnyHabit! The Server is running."}
+    return {"message": f"Welcome to {APP_NAME}! The Server is running.", "version": APP_VERSION}
+
+
+@app.get("/health", response_model=schemas.SystemInfo, tags=["system"])
+def health():
+    """Liveness plus a summary of what the last boot did to the database."""
+    return schemas.SystemInfo(
+        name=APP_NAME,
+        version=APP_VERSION,
+        schema_version=SCHEMA_VERSION,
+        database_ready=True,
+        migrations_applied_on_boot=list(MIGRATION_REPORT.get("applied", [])),
+        backup_created_on_boot=MIGRATION_REPORT.get("backup"),
+    )
+
+
+@app.get("/version", tags=["system"])
+def version():
+    return {"name": APP_NAME, "version": APP_VERSION, "schema_version": SCHEMA_VERSION}
+
 
 app.include_router(trackers_router)
 app.include_router(journals_router)
@@ -42,3 +123,4 @@ app.include_router(dashboard_router)
 app.include_router(auth_router)
 app.include_router(groups_router)
 app.include_router(export_router)
+app.include_router(import_router)

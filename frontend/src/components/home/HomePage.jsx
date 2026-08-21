@@ -5,18 +5,20 @@ import {
   Check,
   Coins,
   GripHorizontal,
+  Flame,
   Layers,
   Menu,
   Plus,
   RefreshCcw,
   Settings,
+  Target,
   Users,
   X
 } from 'lucide-react';
 import { ResponsiveGridLayout, useContainerWidth } from 'react-grid-layout';
 import { useNavigate } from 'react-router-dom';
 import { fetchDashboardSummaryApi, fetchHomeDashboardApi, saveHomeDashboardApi } from '../../services/dashboardApi';
-import { useAppState } from '../../state/AppStateContext';
+import { useAppState } from '../../state/appState';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 
@@ -63,6 +65,20 @@ const WIDGET_DEFINITIONS = {
     icon: BarChart3,
     description: 'Trackers ranked by estimated monthly impact rate.',
     defaultSize: { w: 6, h: 6, minW: 3, minH: 4 },
+    defaultConfig: {}
+  },
+  todayFocus: {
+    label: "Today's Focus",
+    icon: Target,
+    description: 'What still needs doing in the current period.',
+    defaultSize: { w: 6, h: 8, minW: 3, minH: 5 },
+    defaultConfig: {}
+  },
+  streaks: {
+    label: 'Active Streaks',
+    icon: Flame,
+    description: 'Your longest running streaks right now.',
+    defaultSize: { w: 6, h: 7, minW: 3, minH: 4 },
     defaultConfig: {}
   }
 };
@@ -263,12 +279,16 @@ function HomePage() {
   const navigate = useNavigate();
   const {
     trackers,
+    visibleTrackers,
     groups,
     setIsSidebarOpen,
     openTrackerModal,
     setIsGroupManagementOpen,
     setSelectedCategory,
-    setSelectedTrackerId
+    setSelectedTrackerId,
+    confirm,
+    notify,
+    isLoadingTrackers
   } = useAppState();
 
   const openTracker = (trackerId, category) => {
@@ -313,31 +333,17 @@ function HomePage() {
     [trackers]
   );
 
+  // Widgets read from the visible set so an archived tracker stops skewing
+  // dashboard totals the moment it is archived.
   const impactCandidates = useMemo(
     () =>
-      trackers
+      visibleTrackers
         .filter((tracker) => tracker.type !== 'boolean')
         .sort((a, b) => a.name.localeCompare(b.name)),
-    [trackers]
+    [visibleTrackers]
   );
 
   const impactCandidateIds = useMemo(() => impactCandidates.map((tracker) => tracker.id), [impactCandidates]);
-
-  const selectedImpactBuildTrackerIds = useMemo(() => {
-    const selectedIds = new Set();
-
-    widgets
-      .filter((widget) => widget.type === 'impactSummary')
-      .forEach((widget) => {
-        getSelectedImpactTrackerIds(widget, trackerMap, impactCandidateIds).forEach((trackerId) => {
-          if (trackerMap[trackerId]?.type === 'build') {
-            selectedIds.add(trackerId);
-          }
-        });
-      });
-
-    return [...selectedIds];
-  }, [widgets, trackerMap, impactCandidateIds]);
 
   const activeWidgetForSettings = useMemo(
     () => widgets.find((widget) => widget.id === activeWidgetSettingsId) || null,
@@ -464,10 +470,24 @@ function HomePage() {
     setActiveWidgetSettingsId((prev) => (prev === widgetId ? null : prev));
   };
 
-  const handleClearDashboard = () => {
+  const handleClearDashboard = async () => {
+    if (widgets.length === 0) return;
+
+    // One misplaced click used to remove every widget with no way back.
+    const accepted = await confirm({
+      title: 'Clear your dashboard?',
+      message: `All ${widgets.length} widget${
+        widgets.length === 1 ? '' : 's'
+      } will be removed. Your trackers and their history are not affected.`,
+      confirmLabel: 'Clear dashboard',
+      tone: 'danger'
+    });
+    if (!accepted) return;
+
     setWidgets([]);
     setLayouts({ ...EMPTY_LAYOUTS });
     setActiveWidgetSettingsId(null);
+    notify.success('Dashboard cleared');
   };
 
   const updateWidget = (widgetId, patch) => {
@@ -691,6 +711,22 @@ function HomePage() {
                         {widget.type === 'topImpact' && (
                           <TopImpactWidget
                             rows={dashboardSummary?.top_impact_rows || []}
+                            onOpenTracker={(tracker) => openTracker(tracker.id, normalizeCategory(tracker.category))}
+                          />
+                        )}
+
+                        {widget.type === 'todayFocus' && (
+                          <TodayFocusWidget
+                            rows={dashboardSummary?.impact_rows || []}
+                            overview={dashboardSummary?.overview}
+                            isLoading={isLoadingTrackers && !dashboardSummary}
+                            onOpenTracker={(tracker) => openTracker(tracker.id, normalizeCategory(tracker.category))}
+                          />
+                        )}
+
+                        {widget.type === 'streaks' && (
+                          <StreaksWidget
+                            rows={dashboardSummary?.impact_rows || []}
                             onOpenTracker={(tracker) => openTracker(tracker.id, normalizeCategory(tracker.category))}
                           />
                         )}
@@ -1204,6 +1240,117 @@ function TopImpactWidget({ rows, onOpenTracker }) {
               <p className="text-xs text-gray-400 mt-0.5">per month estimate</p>
             </div>
           </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function TodayFocusWidget({ rows, overview, isLoading, onOpenTracker }) {
+  const pending = useMemo(
+    () =>
+      rows
+        .filter(
+          (row) =>
+            row.tracker.is_active &&
+            !row.tracker.archived_at &&
+            row.tracker.type !== 'quit' &&
+            row.progress_percentage < 100
+        )
+        .sort((a, b) => b.progress_percentage - a.progress_percentage),
+    [rows]
+  );
+
+  if (isLoading) {
+    return <div className="flex h-full items-center justify-center text-sm text-gray-500">Loading…</div>;
+  }
+
+  const done = overview?.completed_today ?? 0;
+  const due = overview?.due_today ?? 0;
+
+  return (
+    <div className="flex h-full flex-col gap-4">
+      <div className="rounded-2xl border border-gray-100 bg-stone-50 p-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Completed this period</p>
+        <p className="mt-1 text-2xl font-semibold text-stone-900">
+          {done}
+          <span className="text-base font-normal text-gray-400"> / {due}</span>
+        </p>
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-200">
+          <div
+            className="h-full rounded-full bg-emerald-500 transition-all"
+            style={{ width: `${due > 0 ? Math.min(100, (done / due) * 100) : 0}%` }}
+          />
+        </div>
+      </div>
+
+      {pending.length === 0 ? (
+        <div className="flex flex-1 items-center justify-center text-center text-sm text-gray-500">
+          {due > 0 ? 'Everything is done for now. Nice.' : 'No recurring trackers are active.'}
+        </div>
+      ) : (
+        <div className="space-y-2 overflow-y-auto pr-1">
+          {pending.map((row) => (
+            <button
+              key={row.tracker.id}
+              type="button"
+              onClick={() => onOpenTracker(row.tracker)}
+              className="w-full rounded-xl border border-gray-200 px-3 py-2 text-left transition-colors hover:bg-stone-50"
+            >
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="min-w-0 flex-1 truncate font-medium text-stone-900">{row.tracker.name}</span>
+                <span className="shrink-0 text-xs text-gray-500">{Math.round(row.progress_percentage)}%</span>
+              </div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-gray-100">
+                <div
+                  className="h-full rounded-full bg-stone-700"
+                  style={{ width: `${Math.min(100, row.progress_percentage)}%` }}
+                />
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StreaksWidget({ rows, onOpenTracker }) {
+  const streaks = useMemo(
+    () =>
+      rows
+        .filter((row) => !row.tracker.archived_at && row.current_streak > 0)
+        .sort((a, b) => b.current_streak - a.current_streak)
+        .slice(0, 8),
+    [rows]
+  );
+
+  if (!streaks.length) {
+    return (
+      <div className="flex h-full items-center justify-center px-4 text-center text-sm text-gray-500">
+        No active streaks yet. Log something today to start one.
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full space-y-2 overflow-y-auto">
+      {streaks.map((row) => (
+        <button
+          key={row.tracker.id}
+          type="button"
+          onClick={() => onOpenTracker(row.tracker)}
+          className="flex w-full items-center justify-between gap-3 rounded-xl border border-gray-200 px-3 py-2 text-left transition-colors hover:bg-stone-50"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold text-stone-900">{row.tracker.name}</span>
+            <span className="block text-xs text-gray-500">{normalizeCategory(row.tracker.category)}</span>
+          </span>
+          <span className="flex shrink-0 items-center gap-1.5 text-stone-900">
+            <Flame size={15} className="text-amber-500" />
+            <span className="text-lg font-semibold">{row.current_streak}</span>
+            <span className="text-xs text-gray-400">{row.streak_label}</span>
+          </span>
         </button>
       ))}
     </div>

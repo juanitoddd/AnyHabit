@@ -4,9 +4,33 @@ services:
       context: ./backend
     restart: unless-stopped
     volumes:
+      # Holds anyhabit.db plus the automatic pre-upgrade snapshots in
+      # data/backups/. Keeping them together means one volume to back up.
       - db_data:/app/data
     environment:
       - PYTHONPATH=/app
+      # Every value below falls back to a working default, so `docker compose up`
+      # still works without a .env file. Copy .env.example to .env to change them.
+      - ANYHABIT_SECRET_KEY=${ANYHABIT_SECRET_KEY:-}
+      - ANYHABIT_CORS_ORIGINS=${ANYHABIT_CORS_ORIGINS:-}
+      - ANYHABIT_COOKIE_SECURE=${ANYHABIT_COOKIE_SECURE:-auto}
+      - ANYHABIT_COOKIE_SAMESITE=${ANYHABIT_COOKIE_SAMESITE:-lax}
+      - ANYHABIT_COOKIE_DOMAIN=${ANYHABIT_COOKIE_DOMAIN:-}
+      - ANYHABIT_BOOTSTRAP_USERNAME=${ANYHABIT_BOOTSTRAP_USERNAME:-owner}
+      - ANYHABIT_BOOTSTRAP_EMAIL=${ANYHABIT_BOOTSTRAP_EMAIL:-owner@anyhabit.local}
+      - ANYHABIT_BOOTSTRAP_PASSWORD=${ANYHABIT_BOOTSTRAP_PASSWORD:-anyhabit}
+      - ANYHABIT_TOKEN_TTL_SECONDS=${ANYHABIT_TOKEN_TTL_SECONDS:-604800}
+      - ANYHABIT_AUTO_BACKUP=${ANYHABIT_AUTO_BACKUP:-true}
+      - ANYHABIT_BACKUP_RETENTION=${ANYHABIT_BACKUP_RETENTION:-10}
+      - ANYHABIT_LOG_LEVEL=${ANYHABIT_LOG_LEVEL:-INFO}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      # Generous, because the very first boot of a large database runs
+      # migrations before the port starts answering.
+      start_period: 60s
 
   frontend:
     build:
@@ -15,7 +39,14 @@ services:
     ports:
       - "${APP_PORT:-80}:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 volumes:
   db_data:

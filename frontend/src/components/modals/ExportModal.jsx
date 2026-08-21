@@ -1,240 +1,210 @@
-import { Download, X } from 'lucide-react';
+import { Download, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
-import { exportDataApi } from '../../services/exportApi';
+import { exportDataApi, downloadTextFile } from '../../services/exportApi';
+import { useAppState } from '../../state/appState';
+import Modal from '../ui/Modal';
 
-function ExportModal({ isOpen, setIsExportOpen, trackers }) {
+const DATA_TYPES = [
+  { value: 'all', label: 'Everything', hint: 'Trackers, logs and journals — the full backup' },
+  { value: 'trackers_only', label: 'Trackers and logs', hint: 'No journal entries' },
+  { value: 'journals_only', label: 'Journals only', hint: 'Every journal entry you have written' },
+  { value: 'specific', label: 'Selected trackers', hint: 'Pick exactly what to include' }
+];
+
+function ExportModal() {
+  const { isExportOpen, setIsExportOpen, trackers, notify } = useAppState();
+
   const [selectedTrackers, setSelectedTrackers] = useState([]);
   const [dataType, setDataType] = useState('all');
   const [exportFormat, setExportFormat] = useState('json');
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
 
-  if (!isOpen) return null;
+  if (!isExportOpen) return null;
 
-  const handleTrackerToggle = (trackerId) => {
-    setSelectedTrackers((prev) =>
-      prev.includes(trackerId) ? prev.filter((id) => id !== trackerId) : [...prev, trackerId]
+  const toggleTracker = (trackerId) =>
+    setSelectedTrackers((current) =>
+      current.includes(trackerId) ? current.filter((id) => id !== trackerId) : [...current, trackerId]
     );
-  };
 
-  const handleSelectAllTrackers = () => {
-    if (selectedTrackers.length === trackers.length) {
-      setSelectedTrackers([]);
-    } else {
-      setSelectedTrackers(trackers.map((t) => t.id));
-    }
-  };
+  const toggleAll = () =>
+    setSelectedTrackers((current) => (current.length === trackers.length ? [] : trackers.map((t) => t.id)));
+
+  const canExport = dataType !== 'specific' || selectedTrackers.length > 0;
 
   const handleExport = async () => {
+    setIsLoading(true);
     try {
-      setError(null);
-      setIsLoading(true);
-
-      const trackerIds = dataType === 'specific' ? selectedTrackers : dataType === 'journals_only' ? [] : null;
-
       const data = await exportDataApi({
         data_type: dataType,
         format: exportFormat,
-        tracker_ids: trackerIds
+        tracker_ids: dataType === 'specific' ? selectedTrackers : null
       });
 
-      // Create blob and download
-      const blob = new Blob([data], {
-        type: exportFormat === 'json' ? 'application/json' : 'text/csv'
-      });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `anyhabit-export-${new Date().toISOString().split('T')[0]}.${exportFormat}`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      downloadTextFile(
+        data,
+        `anyhabit-export-${new Date().toISOString().split('T')[0]}.${exportFormat}`,
+        exportFormat === 'json' ? 'application/json' : 'text/csv'
+      );
 
+      notify.success('Export downloaded');
       setIsExportOpen(false);
-    } catch (err) {
-      setError(err.message || 'Failed to export data');
-      console.error(err);
+    } catch (error) {
+      notify.error(error.message || 'Could not export your data');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const canExport = dataType !== 'specific' || selectedTrackers.length > 0;
-
   return (
-    <div className="fixed inset-0 bg-stone-900/20 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="app-modal-card bg-white p-5 md:p-8 rounded-3xl shadow-xl w-[95%] max-w-lg border border-gray-100 max-h-[90vh] overflow-y-auto scrollbar-hide">
-        <div className="flex items-start justify-between gap-4 mb-6">
-          <div>
-            <h3 className="text-xl font-bold text-stone-900">Export Your Data</h3>
-            <p className="text-sm text-gray-500 mt-1">Download your tracker data in your preferred format.</p>
-          </div>
-          <button
-            onClick={() => setIsExportOpen(false)}
-            className="px-3 py-1.5 text-sm font-medium text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-sm text-red-700">{error}</p>
+    <Modal
+      isOpen
+      onClose={() => setIsExportOpen(false)}
+      title="Export your data"
+      description="Download a copy you own. JSON exports can be restored later."
+      size="lg"
+    >
+      <div className="space-y-6">
+        {exportFormat === 'json' && (
+          <div className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            <ShieldCheck size={18} className="mt-0.5 shrink-0 text-emerald-600" />
+            <p className="leading-6">
+              A full JSON export is a complete backup. Keep one before upgrading — Settings → Data can restore it.
+            </p>
           </div>
         )}
 
-        <div className="space-y-6">
-          {/* Data Type Selection */}
-          <div>
-            <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">What to Export</h4>
-            <div className="space-y-2">
-              <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
+        <fieldset>
+          <legend className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400">What to export</legend>
+          <div className="space-y-2">
+            {DATA_TYPES.map((option) => (
+              <label
+                key={option.value}
+                className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${
+                  dataType === option.value
+                    ? 'border-stone-400 bg-stone-50'
+                    : 'border-gray-200 hover:bg-gray-50'
+                }`}
+              >
                 <input
                   type="radio"
                   name="dataType"
-                  value="all"
-                  checked={dataType === 'all'}
-                  onChange={(e) => setDataType(e.target.value)}
-                  className="w-4 h-4"
+                  value={option.value}
+                  checked={dataType === option.value}
+                  onChange={(event) => setDataType(event.target.value)}
+                  className="h-4 w-4"
                 />
-                <span className="text-sm font-medium text-stone-900">All Data</span>
-                <span className="text-xs text-gray-500 ml-auto">All trackers with logs & journals</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium text-stone-900">{option.label}</span>
+                  <span className="block text-xs text-gray-500">{option.hint}</span>
+                </span>
               </label>
-
-              <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
-                <input
-                  type="radio"
-                  name="dataType"
-                  value="trackers_only"
-                  checked={dataType === 'trackers_only'}
-                  onChange={(e) => setDataType(e.target.value)}
-                  className="w-4 h-4"
-                />
-                <span className="text-sm font-medium text-stone-900">Trackers Only</span>
-                <span className="text-xs text-gray-500 ml-auto">Tracker settings & logs</span>
-              </label>
-
-              <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
-                <input
-                  type="radio"
-                  name="dataType"
-                  value="journals_only"
-                  checked={dataType === 'journals_only'}
-                  onChange={(e) => setDataType(e.target.value)}
-                  className="w-4 h-4"
-                />
-                <span className="text-sm font-medium text-stone-900">Journals Only</span>
-                <span className="text-xs text-gray-500 ml-auto">All journal entries</span>
-              </label>
-
-              <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
-                <input
-                  type="radio"
-                  name="dataType"
-                  value="specific"
-                  checked={dataType === 'specific'}
-                  onChange={(e) => setDataType(e.target.value)}
-                  className="w-4 h-4"
-                />
-                <span className="text-sm font-medium text-stone-900">Specific Trackers</span>
-                <span className="text-xs text-gray-500 ml-auto">Choose which trackers</span>
-              </label>
-            </div>
+            ))}
           </div>
+        </fieldset>
 
-          {/* Tracker Selection */}
-          {dataType === 'specific' && (
-            <div>
-              <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Select Trackers</h4>
+        {dataType === 'specific' && (
+          <div>
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Select trackers</h3>
               <button
                 type="button"
-                onClick={handleSelectAllTrackers}
-                className="mb-3 text-sm font-medium text-stone-900 hover:text-stone-600 transition-colors"
+                onClick={toggleAll}
+                className="text-sm font-medium text-stone-900 transition-colors hover:text-stone-600"
               >
-                {selectedTrackers.length === trackers.length ? 'Deselect All' : 'Select All'} ({selectedTrackers.length}/{trackers.length})
+                {selectedTrackers.length === trackers.length ? 'Deselect all' : 'Select all'} (
+                {selectedTrackers.length}/{trackers.length})
               </button>
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                {trackers.map((tracker) => (
-                  <label key={tracker.id} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={selectedTrackers.includes(tracker.id)}
-                      onChange={() => handleTrackerToggle(tracker.id)}
-                      className="w-4 h-4"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-stone-900 truncate">{tracker.name}</p>
-                      <p className="text-xs text-gray-500">{tracker.category}</p>
-                    </div>
-                  </label>
-                ))}
-              </div>
             </div>
-          )}
-
-          {/* Format Selection */}
-          <div>
-            <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Export Format</h4>
-            <div className="space-y-2">
-              <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
-                <input
-                  type="radio"
-                  name="format"
-                  value="json"
-                  checked={exportFormat === 'json'}
-                  onChange={(e) => setExportFormat(e.target.value)}
-                  className="w-4 h-4"
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-stone-900">JSON</p>
-                  <p className="text-xs text-gray-500">Structured format, best for backup or re-import</p>
-                </div>
-              </label>
-
-              <label className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors">
-                <input
-                  type="radio"
-                  name="format"
-                  value="csv"
-                  checked={exportFormat === 'csv'}
-                  onChange={(e) => setExportFormat(e.target.value)}
-                  className="w-4 h-4"
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-stone-900">CSV</p>
-                  <p className="text-xs text-gray-500">Spreadsheet format, good for analysis</p>
-                </div>
-              </label>
+            <div className="max-h-48 space-y-2 overflow-y-auto">
+              {trackers.map((tracker) => (
+                <label
+                  key={tracker.id}
+                  className="flex cursor-pointer items-center gap-3 rounded-xl border border-gray-200 p-3 transition-colors hover:bg-gray-50"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedTrackers.includes(tracker.id)}
+                    onChange={() => toggleTracker(tracker.id)}
+                    className="h-4 w-4"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-stone-900">{tracker.name}</span>
+                    <span className="block text-xs text-gray-500">
+                      {tracker.category}
+                      {tracker.archived_at ? ' · archived' : ''}
+                    </span>
+                  </span>
+                </label>
+              ))}
             </div>
           </div>
+        )}
 
-          {/* Export Button */}
-          <div className="flex gap-3 pt-4 border-t border-gray-200">
-            <button
-              type="button"
-              onClick={() => setIsExportOpen(false)}
-              className="flex-1 px-4 py-2.5 text-sm font-medium text-stone-900 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleExport}
-              disabled={!canExport || isLoading}
-              className={`flex-1 px-4 py-2.5 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2 ${
-                canExport && !isLoading
-                  ? 'bg-stone-900 text-white hover:bg-stone-800'
-                  : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+        <fieldset>
+          <legend className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400">Format</legend>
+          <div className="space-y-2">
+            <label
+              className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${
+                exportFormat === 'json' ? 'border-stone-400 bg-stone-50' : 'border-gray-200 hover:bg-gray-50'
               }`}
             >
-              <Download size={16} />
-              {isLoading ? 'Exporting...' : 'Export'}
-            </button>
+              <input
+                type="radio"
+                name="format"
+                value="json"
+                checked={exportFormat === 'json'}
+                onChange={(event) => setExportFormat(event.target.value)}
+                className="h-4 w-4"
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium text-stone-900">JSON</span>
+                <span className="block text-xs text-gray-500">Restorable backup. Use this one.</span>
+              </span>
+            </label>
+
+            <label
+              className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-colors ${
+                exportFormat === 'csv' ? 'border-stone-400 bg-stone-50' : 'border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              <input
+                type="radio"
+                name="format"
+                value="csv"
+                checked={exportFormat === 'csv'}
+                onChange={(event) => setExportFormat(event.target.value)}
+                className="h-4 w-4"
+              />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium text-stone-900">CSV</span>
+                <span className="block text-xs text-gray-500">
+                  For spreadsheets. Cannot be imported back into AnyHabit.
+                </span>
+              </span>
+            </label>
           </div>
+        </fieldset>
+
+        <div className="flex gap-3 border-t border-gray-200 pt-4">
+          <button
+            type="button"
+            onClick={() => setIsExportOpen(false)}
+            className="flex-1 rounded-xl px-4 py-2.5 text-sm font-medium text-stone-900 transition-colors hover:bg-gray-100"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={!canExport || isLoading}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-stone-900 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400"
+          >
+            <Download size={16} />
+            {isLoading ? 'Exporting…' : 'Export'}
+          </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }
 

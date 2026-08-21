@@ -206,7 +206,7 @@ new Date().toISOString()  // "2024-03-15T10:30:00.000Z"
 ### Tracker not found
 ```bash
 # List all trackers
-curl http://localhost:8000/api/trackers/
+curl http://localhost:8000/trackers/
 
 # The ID might be different than expected
 ```

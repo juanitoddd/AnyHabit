@@ -1,15 +1,57 @@
-from pydantic import BaseModel, Field
+from __future__ import annotations
+
+import re
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+TRACKER_TYPES = {"quit", "build", "boolean"}
+PERIODS = {"day", "week", "month", "year"}
+MIN_PASSWORD_LENGTH = 8
+MAX_PASSWORD_LENGTH = 200
+
+_EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+# ---------------------------------------------------------------------------
+# Users and auth
+# ---------------------------------------------------------------------------
+
+
+def _validate_password(value: str) -> str:
+    if len(value) < MIN_PASSWORD_LENGTH:
+        raise ValueError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters long")
+    if len(value) > MAX_PASSWORD_LENGTH:
+        raise ValueError(f"Password must be at most {MAX_PASSWORD_LENGTH} characters long")
+    return value
 
 
 class UserBase(BaseModel):
-    username: str
-    email: str
+    username: str = Field(min_length=1, max_length=64)
+    email: str = Field(max_length=254)
+
+    @field_validator("email")
+    @classmethod
+    def _check_email(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if not _EMAIL_PATTERN.match(normalized):
+            raise ValueError("Enter a valid email address")
+        return normalized
+
+    @field_validator("username")
+    @classmethod
+    def _check_username(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Username is required")
+        return normalized
 
 
 class UserCreate(UserBase):
     password: str
+
+    _check_password = field_validator("password")(_validate_password)
 
 
 class UserLogin(BaseModel):
@@ -17,14 +59,30 @@ class UserLogin(BaseModel):
     password: str
 
 
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+
+    _check_password = field_validator("new_password")(_validate_password)
+
+
+class UserPreferences(BaseModel):
+    """Everything a user can change about how their data is presented."""
+
+    timezone: Optional[str] = None
+    week_start: Optional[Literal["monday", "sunday", "saturday"]] = None
+    username: Optional[str] = Field(default=None, max_length=64)
+
+
 class User(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     username: str
     email: str
     created_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
+    timezone: str = "UTC"
+    week_start: str = "monday"
 
 
 class AuthResponse(BaseModel):
@@ -33,16 +91,25 @@ class AuthResponse(BaseModel):
     user: User
 
 
+# ---------------------------------------------------------------------------
+# Groups
+# ---------------------------------------------------------------------------
+
+
 class GroupBase(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=80)
 
 
 class GroupCreate(GroupBase):
     pass
 
 
+class GroupUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+
+
 class GroupJoin(BaseModel):
-    join_code: str
+    join_code: str = Field(min_length=1, max_length=32)
 
 
 class GroupMember(BaseModel):
@@ -52,15 +119,21 @@ class GroupMember(BaseModel):
 
 
 class Group(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     name: str
     join_code: str
     owner_id: int
     member_count: int = 0
     members: list[GroupMember] = Field(default_factory=list)
+    tracker_count: int = 0
+    is_owner: bool = False
 
-    class Config:
-        from_attributes = True
+
+# ---------------------------------------------------------------------------
+# Trackers
+# ---------------------------------------------------------------------------
 
 
 class TrackerParticipant(BaseModel):
@@ -69,20 +142,61 @@ class TrackerParticipant(BaseModel):
     added_at: Optional[datetime] = None
 
 
+class TrackerCurrentMath(BaseModel):
+    main_unit: float = 0.0
+    target_unit: float = 0.0
+    impact_value: float = 0.0
+    # Totals across the tracker's whole life, ignoring relapse resets.
+    lifetime_main_unit: float = 0.0
+    lifetime_impact_value: float = 0.0
+
+
+class TrackerDailyProgress(BaseModel):
+    total: float = 0.0
+    target: float = 0.0
+    percentage: float = 0.0
+    window_start: Optional[datetime] = None
+    window_end: Optional[datetime] = None
+
+
+class TrackerStreakStats(BaseModel):
+    current: int = 0
+    longest: int = 0
+    period_label: str = "days"
+    total_relapses: int = 0
+
+
+class TrackerConsistency(BaseModel):
+    completed_periods: int = 0
+    total_periods: int = 0
+    rate: float = 0.0
+    recent_rate: float = 0.0
+    recent_window: int = 0
+
+
+class TrackerWeekdayStat(BaseModel):
+    weekday: int
+    label: str
+    total: float = 0.0
+    entries: int = 0
+
+
+class TrackerMoodPoint(BaseModel):
+    date: str
+    average: float
+    entries: int = 0
+
+
 class TrackerMemberProgress(BaseModel):
     user: User
-    current_math: 'TrackerCurrentMath'
-    daily_progress: 'TrackerDailyProgress'
-    streak_stats: 'TrackerStreakStats'
+    current_math: TrackerCurrentMath
+    daily_progress: TrackerDailyProgress
+    streak_stats: TrackerStreakStats
     last_activity_at: Optional[datetime] = None
 
 
-class TrackerLeaderboardEntry(BaseModel):
-    user: User
-    current_math: 'TrackerCurrentMath'
-    daily_progress: 'TrackerDailyProgress'
-    streak_stats: 'TrackerStreakStats'
-    last_activity_at: Optional[datetime] = None
+class TrackerLeaderboardEntry(TrackerMemberProgress):
+    pass
 
 
 class GroupStreakStats(BaseModel):
@@ -92,59 +206,110 @@ class GroupStreakStats(BaseModel):
     rule_label: str = "All assigned members"
 
 
-class TrackerBase(BaseModel):
-    name: str
-    category: str = "General"
-    type: str 
-    impact_amount: float = 0.0
-    impact_unit: str = "$"
-    impact_per: str = "day" 
-    unit: str
-    units_per_amount: float = 0.0
-    units_per: str = "day"
-    units_per_interval: int = Field(default=1, ge=1)
-    is_active: bool = True
-    group_id: Optional[int] = None
-    participant_ids: list[int] = Field(default_factory=list)
-
-class TrackerCreate(TrackerBase):
-    start_date: Optional[datetime] = None
-
-class Tracker(TrackerBase):
-    id: int
-    owner_id: Optional[int] = None
-    start_date: datetime
-    current_streak_start_date: Optional[datetime] = None
-    visibility: str = "private"
-    participant_count: int = 0
-
-    class Config:
-        from_attributes = True
-
-
-class TrackerCurrentMath(BaseModel):
-    main_unit: float = 0.0
-    target_unit: float = 0.0
-    impact_value: float = 0.0
-
-
-class TrackerDailyProgress(BaseModel):
-    total: float = 0.0
-    target: float = 0.0
-    percentage: float = 0.0
-
-
-class TrackerStreakStats(BaseModel):
-    current: int = 0
-    longest: int = 0
-    period_label: str = "days"
-
-
 class TrackerShareStats(BaseModel):
     member_count: int = 0
     tracker_participants: list[TrackerParticipant] = Field(default_factory=list)
     leaderboard: list[TrackerLeaderboardEntry] = Field(default_factory=list)
     group_streak_stats: Optional[GroupStreakStats] = None
+
+
+class TrackerBase(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=2000)
+    color: str = Field(default="", max_length=32)
+    category: str = Field(default="General", max_length=60)
+    type: str
+    impact_amount: float = Field(default=0.0, ge=0)
+    impact_unit: str = Field(default="$", max_length=16)
+    impact_per: str = "day"
+    unit: str = Field(default="", max_length=32)
+    units_per_amount: float = Field(default=0.0, ge=0)
+    units_per: str = "day"
+    units_per_interval: int = Field(default=1, ge=1, le=365)
+    is_active: bool = True
+    group_id: Optional[int] = None
+    participant_ids: list[int] = Field(default_factory=list)
+
+    @field_validator("type")
+    @classmethod
+    def _check_type(cls, value: str) -> str:
+        if value not in TRACKER_TYPES:
+            raise ValueError(f"Tracker type must be one of: {', '.join(sorted(TRACKER_TYPES))}")
+        return value
+
+    @field_validator("impact_per", "units_per")
+    @classmethod
+    def _check_period(cls, value: str) -> str:
+        if value not in PERIODS:
+            raise ValueError(f"Period must be one of: {', '.join(sorted(PERIODS))}")
+        return value
+
+    @field_validator("category")
+    @classmethod
+    def _check_category(cls, value: str) -> str:
+        return value.strip() or "General"
+
+
+class TrackerCreate(TrackerBase):
+    start_date: Optional[datetime] = None
+
+
+class TrackerUpdate(BaseModel):
+    """PATCH payload — every field optional.
+
+    Only fields actually present in the request body are applied, so a client
+    can send one key without accidentally resetting the rest of the tracker.
+    """
+
+    name: Optional[str] = Field(default=None, min_length=1, max_length=120)
+    description: Optional[str] = Field(default=None, max_length=2000)
+    color: Optional[str] = Field(default=None, max_length=32)
+    category: Optional[str] = Field(default=None, max_length=60)
+    type: Optional[str] = None
+    impact_amount: Optional[float] = Field(default=None, ge=0)
+    impact_unit: Optional[str] = Field(default=None, max_length=16)
+    impact_per: Optional[str] = None
+    unit: Optional[str] = Field(default=None, max_length=32)
+    units_per_amount: Optional[float] = Field(default=None, ge=0)
+    units_per: Optional[str] = None
+    units_per_interval: Optional[int] = Field(default=None, ge=1, le=365)
+    is_active: Optional[bool] = None
+    start_date: Optional[datetime] = None
+    group_id: Optional[int] = None
+    participant_ids: Optional[list[int]] = None
+
+    @field_validator("type")
+    @classmethod
+    def _check_type(cls, value: str | None) -> str | None:
+        if value is not None and value not in TRACKER_TYPES:
+            raise ValueError(f"Tracker type must be one of: {', '.join(sorted(TRACKER_TYPES))}")
+        return value
+
+    @field_validator("impact_per", "units_per")
+    @classmethod
+    def _check_period(cls, value: str | None) -> str | None:
+        if value is not None and value not in PERIODS:
+            raise ValueError(f"Period must be one of: {', '.join(sorted(PERIODS))}")
+        return value
+
+    @field_validator("category")
+    @classmethod
+    def _check_category(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or "General"
+
+
+class Tracker(TrackerBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    owner_id: Optional[int] = None
+    start_date: datetime
+    current_streak_start_date: Optional[datetime] = None
+    archived_at: Optional[datetime] = None
+    visibility: str = "private"
+    participant_count: int = 0
 
 
 class TrackerChartPoint(BaseModel):
@@ -158,6 +323,7 @@ class TrackerHeatmapCell(BaseModel):
     date: str
     amount: float
     is_filler: bool = False
+    is_relapse: bool = False
 
 
 class TrackerHeatmap(BaseModel):
@@ -172,43 +338,66 @@ class TrackerAnalytics(BaseModel):
     historical_chart_data: list[TrackerChartPoint]
     streak_stats: TrackerStreakStats
     build_heatmap: Optional[TrackerHeatmap] = None
+    consistency: TrackerConsistency = Field(default_factory=TrackerConsistency)
+    weekday_breakdown: list[TrackerWeekdayStat] = Field(default_factory=list)
+    mood_trend: list[TrackerMoodPoint] = Field(default_factory=list)
+    effective_start_date: Optional[datetime] = None
+    log_count: int = 0
+    journal_count: int = 0
+    timezone: str = "UTC"
     member_progress: list[TrackerMemberProgress] = Field(default_factory=list)
     share_stats: Optional[TrackerShareStats] = None
     current_user_id: Optional[int] = None
 
 
+# ---------------------------------------------------------------------------
+# Journals and logs
+# ---------------------------------------------------------------------------
+
+
 class JournalEntryBase(BaseModel):
-    mood: Optional[int] = None
-    content: str
+    mood: Optional[int] = Field(default=None, ge=1, le=5)
+    content: str = Field(min_length=1, max_length=10000)
+
 
 class JournalEntryCreate(JournalEntryBase):
-    pass
+    timestamp: Optional[datetime] = None
+
 
 class JournalEntry(JournalEntryBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     tracker_id: int
     user_id: Optional[int] = None
     timestamp: datetime
     is_relapse: bool = False
 
-    class Config:
-        from_attributes = True
-
 
 class HabitLogBase(BaseModel):
-    amount: float = 1.0
+    amount: float = Field(default=1.0)
+    note: str = Field(default="", max_length=500)
+
 
 class HabitLogCreate(HabitLogBase):
-    pass
+    # Accepted in the body so clients do not have to pass it as a query
+    # parameter; the legacy query parameter still wins when both are sent.
+    timestamp: Optional[datetime] = None
+
+
+class HabitLogUpdate(BaseModel):
+    amount: Optional[float] = None
+    note: Optional[str] = Field(default=None, max_length=500)
+    timestamp: Optional[datetime] = None
+
 
 class HabitLog(HabitLogBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     tracker_id: int
     user_id: Optional[int] = None
     timestamp: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class TrackerBundle(BaseModel):
@@ -220,8 +409,13 @@ class TrackerBundle(BaseModel):
     share_stats: Optional[TrackerShareStats] = None
 
 
+# ---------------------------------------------------------------------------
+# Dashboard
+# ---------------------------------------------------------------------------
+
+
 class DashboardStatePayload(BaseModel):
-    widgets: list[dict[str, Any]] = Field(default_factory=list)
+    widgets: list[dict[str, Any]] = Field(default_factory=list, max_length=60)
     layouts: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -237,6 +431,10 @@ class DashboardOverview(BaseModel):
     groups: int = 0
     by_type: dict[str, int] = Field(default_factory=dict)
     shared_trackers: int = 0
+    active_streaks: int = 0
+    longest_active_streak: int = 0
+    due_today: int = 0
+    completed_today: int = 0
 
 
 class DashboardCategoryStat(BaseModel):
@@ -249,6 +447,9 @@ class DashboardImpactRow(BaseModel):
     main_amount: float = 0.0
     impact_value: float = 0.0
     month_impact: float = 0.0
+    current_streak: int = 0
+    streak_label: str = "days"
+    progress_percentage: float = 0.0
     mode_label: str = ""
 
 
@@ -260,8 +461,37 @@ class DashboardSummary(BaseModel):
 
 
 class DailyStat(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     date: str
     total_amount: float
 
-    class Config:
-        from_attributes = True
+
+# ---------------------------------------------------------------------------
+# Backup / restore
+# ---------------------------------------------------------------------------
+
+
+class ImportSummary(BaseModel):
+    """What an import did, or would do when ``dry_run`` is set."""
+
+    dry_run: bool = True
+    mode: str = "merge"
+    trackers_created: int = 0
+    trackers_updated: int = 0
+    trackers_skipped: int = 0
+    logs_created: int = 0
+    journals_created: int = 0
+    trackers_deleted: int = 0
+    warnings: list[str] = Field(default_factory=list)
+    source_version: Optional[str] = None
+    source_exported_at: Optional[str] = None
+
+
+class SystemInfo(BaseModel):
+    name: str
+    version: str
+    schema_version: int
+    database_ready: bool = True
+    migrations_applied_on_boot: list[str] = Field(default_factory=list)
+    backup_created_on_boot: Optional[str] = None
