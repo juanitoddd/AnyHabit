@@ -2,12 +2,43 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/AnyHabit.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
     <title>AnyHabit</title>
+    <meta name="description" content="Self-hosted habit tracking. Build good routines, quit bad ones, and keep your data on your own server." />
+
+    <link rel="icon" type="image/png" href="/AnyHabit.png" />
+    <link rel="apple-touch-icon" href="/AnyHabit.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- Colours the browser chrome to match whichever theme is active. -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fcfcfc" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b1220" />
+
+    <script>
+      // Apply the saved theme before first paint. Without this the app renders
+      // light for a frame and then flips, which reads as a flash on every load.
+      (function () {
+        try {
+          var saved = localStorage.getItem('anyhabit-theme');
+          var resolved =
+            saved === 'dark' || saved === 'light'
+              ? saved
+              : window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light';
+
+          if (resolved === 'dark') document.documentElement.classList.add('theme-dark');
+          document.documentElement.style.colorScheme = resolved;
+        } catch (error) {
+          // Blocked site data: fall through to the default light theme.
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
+    <noscript>AnyHabit needs JavaScript enabled to run.</noscript>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

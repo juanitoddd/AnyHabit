@@ -4,7 +4,7 @@ import { ArrowRight, Loader, LockKeyhole, Mail, UserRound } from 'lucide-react';
 const AUTH_COPY = {
   title: 'Private by default. Shared by choice.',
   subtitle: 'Sign in to your workspace or create a new account to start building private habits and group trackers.',
-  note: 'Bootstrap credentials can be configured from the backend environment for first-run migrations.'
+  note: 'Self-hosted. Your data never leaves your server.'
 };
 
 function AuthScreen({ onLogin, onRegister, error, isBusy }) {
@@ -27,7 +27,7 @@ function AuthScreen({ onLogin, onRegister, error, isBusy }) {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(233,229,216,0.9),_transparent_32%),linear-gradient(135deg,_#f7f2e7_0%,_#fdfdfb_38%,_#eef2f2_100%)] text-stone-900 flex items-center justify-center px-4 py-10">
+    <div className="auth-screen min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(233,229,216,0.9),_transparent_32%),linear-gradient(135deg,_#f7f2e7_0%,_#fdfdfb_38%,_#eef2f2_100%)] text-stone-900 flex items-center justify-center px-4 py-10">
       <div className="w-full max-w-5xl grid lg:grid-cols-[1.15fr_0.85fr] gap-6">
         <section className="rounded-[2rem] border border-white/60 bg-white/70 backdrop-blur-xl shadow-[0_24px_80px_rgba(15,23,42,0.10)] p-8 md:p-12 flex flex-col justify-between overflow-hidden relative">
           <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(120deg,rgba(17,24,39,0.02),transparent_40%,rgba(101,67,33,0.04))]" />
@@ -133,12 +133,17 @@ function AuthScreen({ onLogin, onRegister, error, isBusy }) {
                 <input
                   type="password"
                   required
+                  minLength={mode === 'register' ? 8 : undefined}
+                  autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
                   value={form.password}
                   onChange={(event) => setForm({ ...form, password: event.target.value })}
                   className="w-full rounded-2xl border border-stone-200 bg-stone-50 pl-11 pr-4 py-3 text-sm outline-none focus:border-stone-400"
                   placeholder="••••••••"
                 />
               </div>
+              {mode === 'register' && (
+                <span className="mt-1.5 block text-[11px] text-stone-400">At least 8 characters.</span>
+              )}
             </label>
 
             {(error || localError) && (

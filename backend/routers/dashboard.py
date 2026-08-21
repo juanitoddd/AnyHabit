@@ -1,13 +1,15 @@
+from __future__ import annotations
+
 import json
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
+from ..access import list_accessible_trackers
 from ..analytics import build_dashboard_summary
-from ..deps import get_current_user
-from ..deps import get_db
-from ..time_utils import utcnow
+from ..deps import get_current_user, get_db, get_period_context
+from ..time_utils import PeriodContext, utcnow
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -18,7 +20,7 @@ def _parse_json_or_default(raw_value: str, default_value):
 
     try:
         parsed = json.loads(raw_value)
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, TypeError):
         return default_value
 
     if isinstance(default_value, list) and isinstance(parsed, list):
@@ -28,7 +30,7 @@ def _parse_json_or_default(raw_value: str, default_value):
     return default_value
 
 
-def _get_or_create_home_state(db: Session, user_id: int):
+def _get_or_create_home_state(db: Session, user_id: int) -> models.UserDashboardState:
     state = (
         db.query(models.UserDashboardState)
         .filter(models.UserDashboardState.user_id == user_id, models.UserDashboardState.name == "home")
@@ -44,39 +46,31 @@ def _get_or_create_home_state(db: Session, user_id: int):
     return state
 
 
-def _get_accessible_trackers(db: Session, current_user_id: int):
-    trackers = db.query(models.Tracker).all()
-    return [
-        tracker
-        for tracker in trackers
-        if tracker.owner_id == current_user_id
-        or db.query(models.TrackerParticipant)
-        .filter(models.TrackerParticipant.tracker_id == tracker.id, models.TrackerParticipant.user_id == current_user_id)
-        .first()
-        is not None
-    ]
-
-
 @router.get("/summary", response_model=schemas.DashboardSummary)
-def read_dashboard_summary(current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
-    trackers = _get_accessible_trackers(db, current_user.id)
-    tracker_ids = {tracker.id for tracker in trackers}
+def read_dashboard_summary(
+    include_archived: bool = Query(False, description="Count archived trackers in the totals"),
+    current_user: models.User = Depends(get_current_user),
+    context: PeriodContext = Depends(get_period_context),
+    db: Session = Depends(get_db),
+):
+    trackers = list_accessible_trackers(db, current_user.id, include_archived=include_archived)
+    tracker_ids = [tracker.id for tracker in trackers]
+
+    if not tracker_ids:
+        return build_dashboard_summary([], [], [], context)
+
     habit_logs = (
         db.query(models.HabitLog)
         .filter(models.HabitLog.tracker_id.in_(tracker_ids), models.HabitLog.user_id == current_user.id)
         .all()
-        if tracker_ids
-        else []
     )
     journal_entries = (
         db.query(models.JournalEntry)
         .filter(models.JournalEntry.tracker_id.in_(tracker_ids), models.JournalEntry.user_id == current_user.id)
         .all()
-        if tracker_ids
-        else []
     )
 
-    return build_dashboard_summary(trackers, habit_logs, journal_entries)
+    return build_dashboard_summary(trackers, habit_logs, journal_entries, context)
 
 
 @router.get("/home", response_model=schemas.DashboardStateResponse)

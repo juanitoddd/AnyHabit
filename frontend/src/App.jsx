@@ -1,17 +1,20 @@
 import { useEffect } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
-import './App.css';
 import CategoryView from './components/CategoryView';
+import CommandPalette from './components/CommandPalette';
 import Sidebar from './components/Sidebar';
 import TrackerView from './components/TrackerView';
 import AuthScreen from './components/auth/AuthScreen';
 import HomePage from './components/home/HomePage';
 import ExportModal from './components/modals/ExportModal';
 import GroupManagementModal from './components/modals/GroupManagementModal';
+import ImportModal from './components/modals/ImportModal';
 import LogModal from './components/modals/LogModal';
 import SettingsModal from './components/modals/SettingsModal';
 import TrackerModal from './components/modals/TrackerModal';
-import { useAppState } from './state/AppStateContext';
+import ConfirmDialog from './components/ui/ConfirmDialog';
+import Toaster from './components/ui/Toaster';
+import { useAppState } from './state/appState';
 
 function HomeRoute() {
   const { setSelectedTrackerId, setSelectedCategory } = useAppState();
@@ -39,7 +42,7 @@ function CategoryRoute() {
 function TrackerRoute() {
   const { trackerId } = useParams();
   const navigate = useNavigate();
-  const { selectedTracker, setSelectedTrackerId, setSelectedCategory } = useAppState();
+  const { selectedTracker, setSelectedTrackerId, setSelectedCategory, isLoadingTrackers } = useAppState();
 
   useEffect(() => {
     const nextId = Number(trackerId);
@@ -56,8 +59,28 @@ function TrackerRoute() {
     }
   }, [selectedTracker, setSelectedCategory]);
 
-  if (!selectedTracker && trackerId) {
-    return <div className="px-4 md:px-10 pt-8 text-sm text-stone-500">Loading tracker...</div>;
+  // Once the tracker list has loaded, a tracker still missing from it is one
+  // the user cannot reach — say so rather than spinning forever on a dead link.
+  if (!selectedTracker && isLoadingTrackers) {
+    return (
+      <div className="flex flex-1 items-center justify-center px-4 text-sm text-stone-500">Loading tracker…</div>
+    );
+  }
+
+  if (!selectedTracker) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
+        <p className="text-lg font-semibold text-stone-700">That tracker could not be found</p>
+        <p className="text-sm text-gray-500">It may have been deleted, or the link points somewhere else.</p>
+        <button
+          type="button"
+          onClick={() => navigate('/')}
+          className="mt-2 rounded-xl bg-stone-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-stone-800"
+        >
+          Back to Home
+        </button>
+      </div>
+    );
   }
 
   return <TrackerView />;
@@ -66,79 +89,31 @@ function TrackerRoute() {
 function AppShell() {
   const location = useLocation();
   const {
-    visibleError,
-    dismissVisibleError,
-    theme,
+    toasts,
+    dismissToast,
+    confirmRequest,
+    resolveConfirm,
     isSidebarOpen,
-    setIsSidebarOpen,
-    isSettingsOpen,
-    setIsSettingsOpen,
-    isExportOpen,
-    setIsExportOpen,
-    isGroupManagementOpen,
-    setIsGroupManagementOpen,
-    isLogModalOpen,
-    setIsLogModalOpen,
-    isTrackerModalOpen,
-    setIsTrackerModalOpen,
-    selectedTracker,
-    logFormData,
-    setLogFormData,
-    trackerFormData,
-    setTrackerFormData,
-    trackerTypeOptions,
-    categoryMenuRef,
-    typeMenuRef,
-    isCategoryMenuOpen,
-    setIsCategoryMenuOpen,
-    isCreatingCategory,
-    setIsCreatingCategory,
-    existingCategories,
-    isTypeMenuOpen,
-    setIsTypeMenuOpen,
-    groups,
-    trackers,
-    handleLogSubmit,
-    handleTrackerSubmit,
-    user,
-    setTheme,
-    logout,
-    createGroup,
-    joinGroup
+    setIsSidebarOpen
   } = useAppState();
 
   const isHomeActive = location.pathname === '/';
 
   return (
-    <div
-      className={`app-shell flex h-screen w-full bg-[#fcfcfc] font-sans text-stone-800 ${theme === 'dark' ? 'theme-dark' : ''}`}
-    >
-      {visibleError && (
-        <div className="fixed top-4 left-1/2 z-[80] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-lg">
-          <div className="flex items-start justify-between gap-3">
-            <p className="leading-6">{visibleError}</p>
-            <button
-              type="button"
-              onClick={dismissVisibleError}
-              className="shrink-0 rounded-lg px-2 py-1 text-rose-500 hover:bg-rose-100 hover:text-rose-700 transition-colors"
-              aria-label="Dismiss error"
-            >
-              ×
-            </button>
-          </div>
-        </div>
-      )}
+    <div className="app-shell flex h-screen w-full bg-[#fcfcfc] font-sans text-stone-800">
+      <Toaster toasts={toasts} onDismiss={dismissToast} />
 
       {isSidebarOpen && (
         <div
-          className="fixed inset-0 bg-stone-900/50 z-40 md:hidden backdrop-blur-sm"
+          className="fixed inset-0 z-40 bg-stone-900/50 backdrop-blur-sm md:hidden"
           onClick={() => setIsSidebarOpen(false)}
+          aria-hidden="true"
         />
       )}
 
       <Sidebar isHomeActive={isHomeActive} />
 
-      <div className="app-main flex-1 flex flex-col bg-[#fcfcfc] overflow-hidden">
+      <div className="app-main flex flex-1 flex-col overflow-hidden bg-[#fcfcfc]">
         <Routes>
           <Route path="/" element={<HomeRoute />} />
           <Route path="/category/:categoryName" element={<CategoryRoute />} />
@@ -147,57 +122,14 @@ function AppShell() {
         </Routes>
       </div>
 
-      <LogModal
-        isOpen={isLogModalOpen}
-        setIsLogModalOpen={setIsLogModalOpen}
-        selectedTracker={selectedTracker}
-        logFormData={logFormData}
-        setLogFormData={setLogFormData}
-        handleLogSubmit={handleLogSubmit}
-      />
-
-      <TrackerModal
-        isOpen={isTrackerModalOpen}
-        setIsTrackerModalOpen={setIsTrackerModalOpen}
-        currentUser={user}
-        trackerFormData={trackerFormData}
-        setTrackerFormData={setTrackerFormData}
-        handleTrackerSubmit={handleTrackerSubmit}
-        categoryMenuRef={categoryMenuRef}
-        typeMenuRef={typeMenuRef}
-        isCategoryMenuOpen={isCategoryMenuOpen}
-        setIsCategoryMenuOpen={setIsCategoryMenuOpen}
-        isCreatingCategory={isCreatingCategory}
-        setIsCreatingCategory={setIsCreatingCategory}
-        existingCategories={existingCategories}
-        isTypeMenuOpen={isTypeMenuOpen}
-        setIsTypeMenuOpen={setIsTypeMenuOpen}
-        trackerTypeOptions={trackerTypeOptions}
-        groups={groups}
-      />
-
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        setIsSettingsOpen={setIsSettingsOpen}
-        theme={theme}
-        setTheme={setTheme}
-        onLogout={logout}
-        user={user}
-      />
-
-      <ExportModal
-        isOpen={isExportOpen}
-        setIsExportOpen={setIsExportOpen}
-        trackers={trackers}
-      />
-
-      <GroupManagementModal
-        isOpen={isGroupManagementOpen}
-        setIsOpen={setIsGroupManagementOpen}
-        groups={groups}
-        onCreateGroup={createGroup}
-        onJoinGroup={joinGroup}
-      />
+      <CommandPalette />
+      <LogModal />
+      <TrackerModal />
+      <SettingsModal />
+      <ExportModal />
+      <ImportModal />
+      <GroupManagementModal />
+      <ConfirmDialog request={confirmRequest} onResolve={resolveConfirm} />
     </div>
   );
 }
@@ -207,8 +139,8 @@ function App() {
 
   if (isAuthLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-stone-50 text-stone-500">
-        Loading workspace...
+      <div className="app-boot flex min-h-screen items-center justify-center bg-stone-50 text-stone-500">
+        Loading workspace…
       </div>
     );
   }

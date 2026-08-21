@@ -23,7 +23,26 @@
 <details>
 <summary><b>🚀 Click to see Recent Updates (Changelog)</b></summary>
 
-#### [v1.2.0] - Latest Release
+#### [v1.3.0] - Latest Release
+- **Added:** Your own time zone — streaks and daily targets now reset at *your* midnight, not UTC midnight
+- **Added:** Restore from a backup with a preview of exactly what will change, in Settings → Data
+- **Added:** Automatic database snapshot before every upgrade, kept in `data/backups/`
+- **Added:** Archive trackers instead of deleting them, keeping all history
+- **Added:** Search everything with `Ctrl`/`⌘` + `K`
+- **Added:** Tracker descriptions, colours, back-dated start dates and per-log notes
+- **Added:** Consistency rate, weekday breakdown and mood-over-time charts
+- **Added:** Group renaming, member removal, leaving, deleting and join-code rotation
+- **Added:** Change your password, edit your display name, delete your account
+- **Added:** Journal search, and relapse entries clearly marked
+- **Fixed:** Logging a relapse now actually resets a quit tracker's totals, as documented
+- **Fixed:** Export dialog could never open
+- **Fixed:** Sign-in page ignored dark mode
+- **Fixed:** `ANYHABIT_SECRET_KEY` and the other documented settings were never passed to the backend
+- **Fixed:** Signing in failed over plain HTTP on a LAN address (Secure-cookie default)
+- **Fixed:** Errors were swallowed silently instead of being shown
+- [Full Changelog](https://github.com/Sparths/AnyHabit/compare/v1.2.0...v1.3.0)
+
+#### [v1.2.0] - Data Export
 - **Added:** Data Export
 - [Full Changelog](https://github.com/Sparths/AnyHabit/compare/v1.1.0...v1.2.0)
 
@@ -52,16 +71,20 @@
 
 ## ✨ Key Features
 
-* **Dual Tracking Modes:** Monitor positive routines or reduce harmful ones.
-* **Categories:** Organize your dashboard with custom categories.
-* **Accounts & Groups:** Sign in with private accounts, then create family/friend groups for shared trackers.
-* **Shared Trackers:** Assign multiple group members to one tracker and compare progress per participant.
-* **Dual Streaks:** Track both individual streaks and a collective group streak for shared goals.
-* **Dark Mode:** Seamlessly switch between Light and Dark themes.
-* **Impact Units:** Automatically calculate money/Calories and more by avoiding negative habits.
-* **Daily Journal:** Log your mood and thoughts alongside your habits.
+* **Three Tracking Modes:** Quit something, build something, or simply tick a box each period.
+* **Your Time Zone:** Days roll over at your midnight, not the server's.
+* **Categories & Archive:** Organize with custom categories, and archive finished trackers without losing their history.
+* **Accounts & Groups:** Private accounts, plus family/friend groups for shared trackers.
+* **Shared Trackers:** Assign group members to one tracker and compare progress per participant.
+* **Dual Streaks:** Individual streaks alongside a collective group streak.
+* **Real Insight:** Streaks, consistency rate, weekday breakdown, heatmap and mood-over-time charts.
+* **Impact Units:** Money saved, Calories, CO₂ avoided, hours reclaimed — you pick the unit.
+* **Daily Journal:** Log your mood and thoughts, then search back through them.
+* **Safe Upgrades:** The database is snapshotted automatically before any schema change.
+* **Fast Navigation:** `Ctrl`/`⌘` + `K` searches trackers, categories and actions.
+* **Dark Mode:** Light, dark, or follow your system.
+* **Full Data Ownership:** Export trackers and journals as CSV for analysis, or a complete JSON backup you can restore here or on another server.
 * **Self-Hosted & Private:** Complete control over your data with SQLite and Docker.
-* **Full Data Ownership (Export & Import):** Export your trackers and journals as CSV for analysis, or generate a complete JSON raw-backup of your entire profile to safely restore or migrate your data to another server.
 
 ---
 
@@ -82,77 +105,120 @@ docker compose up -d --build
 
 Open **http://localhost** (or your device's IP) in your browser.
 
+Sign in with the first-run account — username `owner`, password `anyhabit` —
+then change the password under **Settings → Account**.
+
 > [!TIP]
-> Your data is safely stored in a Docker volume (`db_data`) and will persist even if you stop or rebuild the containers.
+> Your data lives in a Docker volume (`db_data`) and survives stopping,
+> rebuilding and upgrading the containers. See [Upgrading](#️-upgrading).
+
+---
+
+## ⬆️ Upgrading
+
+```bash
+cd AnyHabit
+git pull
+docker compose up -d --build
+```
+
+That is all. Your data lives in a Docker volume, not in the container, and
+AnyHabit takes a snapshot of the database into `data/backups/` before applying
+any schema change. Migrations are additive and idempotent, so an interrupted
+upgrade is safe to retry, and upgrading from any 0.1–0.6 release works the same
+way.
+
+> [!TIP]
+> Want your own copy first? **Settings → Data → Export data** gives you a JSON
+> backup you can restore from **Settings → Data → Restore data** at any time.
+
+See **[UPGRADING.md](UPGRADING.md)** for what changed in 0.7.0, how to verify
+the upgrade, and how to roll back if you need to.
 
 ---
 
 ## ⚙️ Configuration
 
+All settings are optional — AnyHabit runs with sensible defaults. To change any
+of them:
+
+```bash
+cp .env.example .env   # edit it, then:
+docker compose up -d --build
+```
+
 | Variable | Description | Default |
 | :--- | :--- | :--- |
-| `APP_PORT` | The port on which the app is accessible | `80` |
-| `VITE_API_URL` | Backend URL for local frontend development | `http://localhost/api` |
-| `ANYHABIT_SECRET_KEY` | JWT signing secret for authentication | `change-me-in-production` |
-| `ANYHABIT_CORS_ORIGINS` | Comma-separated allowlist of frontend origins | `http://localhost:5173,...` |
-| `ANYHABIT_COOKIE_SECURE` | Marks auth cookie as secure-only | `true` |
-| `ANYHABIT_COOKIE_SAMESITE` | SameSite policy for auth cookie | `lax` |
-| `ANYHABIT_COOKIE_DOMAIN` | Optional domain scope for auth cookie | unset |
-| `ANYHABIT_BOOTSTRAP_USERNAME` | Initial local login username | `owner` |
-| `ANYHABIT_BOOTSTRAP_EMAIL` | Initial local login email | `owner@anyhabit.local` |
-| `ANYHABIT_BOOTSTRAP_PASSWORD` | Initial local login password | `anyhabit` |
+| `APP_PORT` | Port the app is served on | `80` |
+| `ANYHABIT_SECRET_KEY` | Signs login sessions. **Set this** before exposing AnyHabit beyond your own machine (`openssl rand -hex 32`). Changing it only signs everyone out; it never touches data. | built-in dev key |
+| `ANYHABIT_COOKIE_SECURE` | `auto` marks the auth cookie Secure only when the request arrived over HTTPS. `true`/`false` force it. | `auto` |
+| `ANYHABIT_COOKIE_SAMESITE` | SameSite policy for the auth cookie | `lax` |
+| `ANYHABIT_COOKIE_DOMAIN` | Optional domain scope, e.g. `.example.com` | unset |
+| `ANYHABIT_TOKEN_TTL_SECONDS` | Session lifetime | `604800` (7 days) |
+| `ANYHABIT_BOOTSTRAP_USERNAME` | First-run account username | `owner` |
+| `ANYHABIT_BOOTSTRAP_EMAIL` | First-run account email | `owner@anyhabit.local` |
+| `ANYHABIT_BOOTSTRAP_PASSWORD` | First-run account password | `anyhabit` |
+| `ANYHABIT_AUTO_BACKUP` | Snapshot the database before applying migrations | `true` |
+| `ANYHABIT_BACKUP_RETENTION` | How many snapshots to keep | `10` |
+| `ANYHABIT_CORS_ORIGINS` | Extra browser origins allowed to call the API | dev server ports |
+| `ANYHABIT_LOG_LEVEL` | `DEBUG`, `INFO`, `WARNING` or `ERROR` | `INFO` |
+| `VITE_API_URL` | Backend URL when running the frontend separately | unset |
 
-Frontend auth now uses HttpOnly cookies; API calls must include credentials.
+> [!IMPORTANT]
+> The first-run account is created **only when the database has no users at
+> all**. Changing these values later never modifies an existing account — use
+> Settings → Account to change your password.
 
-**To change the port:**
-1. Create an environment file: `cp .env.example .env`
-2. Edit `.env` and change `APP_PORT=8080`
-3. Restart: `docker compose up -d`
+> [!WARNING]
+> Leave `ANYHABIT_COOKIE_SECURE` on `auto` unless you always reach AnyHabit over
+> HTTPS. Forcing `true` on a plain-HTTP LAN address makes the browser discard
+> the session cookie, which looks exactly like signing in not working.
 
 ---
 
-## 📚 Backend API Documentation
+## 🔌 Backend API
 
-AnyHabit provides a **complete REST API** that enables you to:
-- ✅ **Build custom frontends** with any framework (React, Vue, Flutter, etc.)
-- ✅ **Integrate with your own applications** - ✅ **Access all data programmatically** without the UI
-
-### Quick Links
+AnyHabit is API-first. Everything the web UI does is a documented HTTP call, so
+you can build your own client, script your data, or wire it into another tool.
 
 | Resource | Description |
 |----------|-------------|
-| **[📚 API Documentation](backend/README.md)** | Complete API reference with 25+ endpoints and examples |
-| **[⚡ Quick Reference](backend/API_QUICK_REFERENCE.md)** | One-page API cheat sheet for quick lookup |
-| **[🔧 Frontend Integration Guide](backend/FRONTEND_INTEGRATION.md)** | Guide for building custom frontends with the API |
-| **[🗂️ Documentation Index](backend/INDEX.md)** | Main navigation hub for all backend docs |
-| **[💻 Development Guide](backend/DEVELOPMENT.md)** | Backend development and contribution guide |
-
-### Example: Use the API
+| **[📚 API Documentation](backend/README.md)** | Complete reference with examples |
+| **[⚡ Quick Reference](backend/API_QUICK_REFERENCE.md)** | One-page cheat sheet |
+| **[🔧 Frontend Integration Guide](backend/FRONTEND_INTEGRATION.md)** | Building a custom frontend |
+| **[🗂️ Documentation Index](backend/INDEX.md)** | Navigation hub for backend docs |
+| **[💻 Development Guide](backend/DEVELOPMENT.md)** | Running and contributing to the backend |
 
 ```bash
-# Get all trackers
-curl http://localhost:8000/api/trackers/
+# Sign in and keep the session cookie
+curl -c cookies.txt -X POST http://localhost/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"identifier":"owner@anyhabit.local","password":"anyhabit"}'
 
-# Get complete tracker data (with analytics, logs, journals)
-curl http://localhost:8000/api/trackers/1/bundle
+# List your trackers
+curl -b cookies.txt http://localhost/trackers/
 
-# View interactive API docs
-# Open in browser: http://localhost:8000/docs
+# Everything about one tracker in a single call
+curl -b cookies.txt http://localhost/trackers/1/bundle
+
+# Version, schema version and what the last boot migrated
+curl http://localhost/health
 ```
 
-### Interactive API Documentation
-
-FastAPI provides built-in interactive documentation:
-- **[Swagger UI](https://anyhabit.onrender.com/docs)** - Try endpoints live
-- **[ReDoc](https://anyhabit.onrender.com/redoc)** - Alternative documentation format
+Interactive docs are served by the app itself —
+**[Swagger UI](http://localhost/docs)** · **[ReDoc](http://localhost/redoc)** —
+or browse them on the hosted demo:
+**[Swagger UI](https://anyhabit.onrender.com/docs)** ·
+**[ReDoc](https://anyhabit.onrender.com/redoc)**
 
 ---
 
 ## 🛠️ Tech Stack
 
-* **Backend:** [FastAPI](https://fastapi.tiangolo.com/) (Python 3.12-slim)
-* **Frontend:** [React 19](https://react.dev/) + [Vite](https://vitejs.dev/)
+* **Backend:** [FastAPI](https://fastapi.tiangolo.com/) (Python 3.12-slim) + [SQLAlchemy](https://www.sqlalchemy.org/)
+* **Frontend:** [React 19](https://react.dev/) + [Vite](https://vitejs.dev/) + [Recharts](https://recharts.org/)
 * **Styling:** [Tailwind CSS 4](https://tailwindcss.com/)
+* **Database:** [SQLite](https://www.sqlite.org/) in WAL mode, with a built-in migration runner
 * **Proxy:** [Nginx](https://www.nginx.com/) as a Reverse Proxy & Static File Server
 
 ---

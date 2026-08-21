@@ -2,6 +2,13 @@
 
 Welcome to the AnyHabit API! This document provides comprehensive information about all available endpoints, request formats, and response schemas.
 
+> [!NOTE]
+> **1.3.0 added several endpoints** that this document does not yet cover in
+> prose: backup import (`POST /import/`), tracker archiving, log editing,
+> preferences and password changes, group management, and `/health`.
+> The **[Quick Reference](API_QUICK_REFERENCE.md)** lists the complete current
+> surface, and `/docs` on a running instance is always authoritative.
+
 ## Table of Contents
 
 - [Getting Started](#getting-started)
@@ -50,10 +57,10 @@ FastAPI provides interactive API docs:
 ## Base URL
 
 ```
-http://localhost:8000/api
+http://localhost:8000
 ```
 
-All endpoints are prefixed with `/api`. Replace `localhost:8000` with your server's actual address.
+Routes are mounted at the root — there is **no** `/api` prefix. Replace `localhost:8000` with your server's actual address, or use `http://localhost` when running through the nginx container.
 
 ---
 
@@ -566,7 +573,7 @@ Record habit activity.
 **Example cURL:**
 
 ```bash
-curl -X POST "http://localhost:8000/api/trackers/1/logs?timestamp=2024-03-15T00:00:00" \
+curl -X POST "http://localhost:8000/trackers/1/logs?timestamp=2024-03-15T00:00:00" \
   -H "Content-Type: application/json" \
   -d '{"amount": 45.0}'
 ```
@@ -894,7 +901,7 @@ View aggregated data across all trackers.
 ### Example 1: Create a Build Tracker
 
 ```bash
-curl -X POST "http://localhost:8000/api/trackers/" \
+curl -X POST "http://localhost:8000/trackers/" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Morning Exercise",
@@ -911,7 +918,7 @@ curl -X POST "http://localhost:8000/api/trackers/" \
 ### Example 2: Log Activity
 
 ```bash
-curl -X POST "http://localhost:8000/api/trackers/1/logs?timestamp=2024-03-15T06:30:00" \
+curl -X POST "http://localhost:8000/trackers/1/logs?timestamp=2024-03-15T06:30:00" \
   -H "Content-Type: application/json" \
   -d '{"amount": 30.0}'
 ```
@@ -919,7 +926,7 @@ curl -X POST "http://localhost:8000/api/trackers/1/logs?timestamp=2024-03-15T06:
 ### Example 3: Add Journal Entry
 
 ```bash
-curl -X POST "http://localhost:8000/api/trackers/1/journal" \
+curl -X POST "http://localhost:8000/trackers/1/journal" \
   -H "Content-Type: application/json" \
   -d '{
     "mood": 9,
@@ -930,13 +937,13 @@ curl -X POST "http://localhost:8000/api/trackers/1/journal" \
 ### Example 4: Get Complete Tracker Data
 
 ```bash
-curl "http://localhost:8000/api/trackers/1/bundle"
+curl "http://localhost:8000/trackers/1/bundle"
 ```
 
 ### Example 5: Get Dashboard Summary
 
 ```bash
-curl "http://localhost:8000/api/dashboard/summary"
+curl "http://localhost:8000/dashboard/summary"
 ```
 
 ### JavaScript Example
@@ -944,7 +951,7 @@ curl "http://localhost:8000/api/dashboard/summary"
 ```javascript
 // Get tracker with all data
 async function getTrackerData(trackerId) {
-  const response = await fetch(`http://localhost:8000/api/trackers/${trackerId}/bundle`);
+  const response = await fetch(`http://localhost:8000/trackers/${trackerId}/bundle`);
   const data = await response.json();
   return data;
 }
@@ -953,7 +960,7 @@ async function getTrackerData(trackerId) {
 async function logActivity(trackerId, amount) {
   const timestamp = new Date().toISOString();
   const response = await fetch(
-    `http://localhost:8000/api/trackers/${trackerId}/logs?timestamp=${timestamp}`,
+    `http://localhost:8000/trackers/${trackerId}/logs?timestamp=${timestamp}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -965,7 +972,7 @@ async function logActivity(trackerId, amount) {
 
 // Get dashboard summary
 async function getDashboard() {
-  const response = await fetch('http://localhost:8000/api/dashboard/summary');
+  const response = await fetch('http://localhost:8000/dashboard/summary');
   return response.json();
 }
 ```
@@ -1177,6 +1184,6 @@ Choose the right type for your use case:
 
 - **API Version:** 1.0
 - **Last Updated:** March 2024
-- **Base URL:** `http://localhost:8000/api`
+- **Base URL:** `http://localhost:8000`
 
 For the latest changes, see the [GitHub Repository](https://github.com/Sparths/AnyHabit).

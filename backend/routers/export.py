@@ -1,338 +1,330 @@
+"""Data export.
+
+The JSON output doubles as AnyHabit's backup format: it is what
+``POST /import/`` consumes, so an export taken before an upgrade is a complete
+restore path.  The CSV output is a flat, spreadsheet-friendly view and is not
+importable.
+"""
+
+from __future__ import annotations
+
 import csv
 import json
-from datetime import datetime, timezone
 from io import StringIO
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..analytics import build_tracker_analytics
-from ..deps import get_current_user, get_db
-from ..time_utils import ensure_utc
+from ..deps import get_current_user, get_db, get_period_context
+from ..time_utils import PeriodContext, ensure_utc, utcnow
+from ..version import APP_VERSION
 
 router = APIRouter(prefix="/export", tags=["export"])
 
+BACKUP_FORMAT = "anyhabit-backup"
+BACKUP_FORMAT_VERSION = 1
 
-def _format_timestamp(dt) -> str:
-    """Format datetime to ISO format string"""
-    if dt is None:
-        return datetime.now(timezone.utc).isoformat()
-    normalized = ensure_utc(dt)
+DATA_TYPES = ("all", "trackers_only", "journals_only", "specific", "backup")
+
+# v1.2.0 called a full export "backup" and stamped it `export_type: backup`.
+# That name still works, and the marker is still written, so files produced by
+# either version are readable by the importer of either version.
+LEGACY_BACKUP_TYPE = "backup"
+FORMATS = ("json", "csv")
+
+MOOD_LABELS = {1: "Very Bad", 2: "Bad", 3: "Neutral", 4: "Good", 5: "Very Good"}
+
+
+def _format_timestamp(value) -> str:
+    if value is None:
+        return utcnow().isoformat()
+    normalized = ensure_utc(value)
     return normalized.isoformat() if normalized else ""
 
-def _model_to_dict(obj):
-    """Converts a SQLAlchemy model instance into a pure dictionary for backup."""
-    if not obj:
-        return None
-    data = {}
-    for c in obj.__table__.columns:
-        val = getattr(obj, c.name)
-        if hasattr(val, 'isoformat'):
-            data[c.name] = _format_timestamp(val)
-        else:
-            data[c.name] = val
-    return data
 
-def _get_tracker_logs_with_calculations(db: Session, tracker: models.Tracker, user_id: int) -> List[dict]:
-    logs = db.query(models.HabitLog).filter(models.HabitLog.tracker_id == tracker.id, models.HabitLog.user_id == user_id).order_by(models.HabitLog.timestamp.asc()).all()
-    result = []
+def _log_rows(db: Session, tracker: models.Tracker, user_id: int) -> List[dict]:
+    logs = (
+        db.query(models.HabitLog)
+        .filter(models.HabitLog.tracker_id == tracker.id, models.HabitLog.user_id == user_id)
+        .order_by(models.HabitLog.timestamp.asc())
+        .all()
+    )
+
+    rows = []
     for log in logs:
-        log_dict = {
+        timestamp = _format_timestamp(log.timestamp)
+        row = {
             "id": log.id,
             "tracker_id": log.tracker_id,
-            "timestamp": _format_timestamp(log.timestamp),
-            "date": _format_timestamp(log.timestamp).split("T")[0],
-            "amount": float(log.amount),
+            "timestamp": timestamp,
+            "date": timestamp.split("T")[0],
+            "amount": float(log.amount or 0),
+            "note": log.note or "",
             "unit": tracker.unit or "",
         }
+
         if tracker.impact_amount and tracker.impact_per:
-            impact = float(log.amount) * float(tracker.impact_amount)
-            log_dict["impact"] = round(impact, 2)
-            log_dict["impact_unit"] = tracker.impact_unit or ""
-        result.append(log_dict)
-    return result
+            row["impact"] = round(float(log.amount or 0) * float(tracker.impact_amount), 2)
+            row["impact_unit"] = tracker.impact_unit or ""
 
-def _get_tracker_journals_with_calculations(db: Session, tracker: models.Tracker, user_id: int) -> List[dict]:
-    journals = db.query(models.JournalEntry).filter(models.JournalEntry.tracker_id == tracker.id, models.JournalEntry.user_id == user_id).order_by(models.JournalEntry.timestamp.asc()).all()
-    result = []
+        rows.append(row)
+
+    return rows
+
+
+def _journal_rows(db: Session, tracker: models.Tracker, user_id: int) -> List[dict]:
+    journals = (
+        db.query(models.JournalEntry)
+        .filter(models.JournalEntry.tracker_id == tracker.id, models.JournalEntry.user_id == user_id)
+        .order_by(models.JournalEntry.timestamp.asc())
+        .all()
+    )
+
+    rows = []
     for journal in journals:
-        mood_label = None
-        if journal.mood is not None:
-            mood_labels = {1: "Very Bad", 2: "Bad", 3: "Neutral", 4: "Good", 5: "Very Good"}
-            mood_label = mood_labels.get(journal.mood)
-        journal_dict = {
-            "id": journal.id,
-            "tracker_id": journal.tracker_id,
-            "timestamp": _format_timestamp(journal.timestamp),
-            "date": _format_timestamp(journal.timestamp).split("T")[0],
-            "mood": journal.mood,
-            "mood_label": mood_label,
-            "content": journal.content or "",
-            "is_relapse": journal.is_relapse,
-        }
-        result.append(journal_dict)
-    return result
+        timestamp = _format_timestamp(journal.timestamp)
+        rows.append(
+            {
+                "id": journal.id,
+                "tracker_id": journal.tracker_id,
+                "timestamp": timestamp,
+                "date": timestamp.split("T")[0],
+                "mood": journal.mood,
+                "mood_label": MOOD_LABELS.get(journal.mood) if journal.mood is not None else None,
+                "content": journal.content or "",
+                "is_relapse": bool(journal.is_relapse),
+            }
+        )
 
-def _get_tracker_info_with_stats(db: Session, tracker: models.Tracker, user_id: int) -> dict:
-    logs = db.query(models.HabitLog).filter(models.HabitLog.tracker_id == tracker.id, models.HabitLog.user_id == user_id).all()
-    journals = db.query(models.JournalEntry).filter(models.JournalEntry.tracker_id == tracker.id, models.JournalEntry.user_id == user_id).all()
-    analytics = build_tracker_analytics(tracker, logs, journals, current_user_id=user_id)
-    tracker_dict = {
-        "id": tracker.id, "name": tracker.name, "category": tracker.category, "type": tracker.type,
-        "start_date": _format_timestamp(tracker.start_date), "current_streak_start_date": _format_timestamp(tracker.current_streak_start_date),
-        "is_active": tracker.is_active, "unit": tracker.unit or "", "impact_unit": tracker.impact_unit or "",
-        "impact_per": tracker.impact_per or "", "impact_amount": float(tracker.impact_amount) if tracker.impact_amount else None,
-        "units_per": tracker.units_per or "", "units_per_interval": tracker.units_per_interval or 1,
-        "units_per_amount": float(tracker.units_per_amount) if tracker.units_per_amount else None,
-    }
-    if analytics:
-        tracker_dict["statistics"] = {
+    return rows
+
+
+def _tracker_row(
+    db: Session,
+    tracker: models.Tracker,
+    user_id: int,
+    context: PeriodContext,
+) -> dict:
+    logs = (
+        db.query(models.HabitLog)
+        .filter(models.HabitLog.tracker_id == tracker.id, models.HabitLog.user_id == user_id)
+        .all()
+    )
+    journals = (
+        db.query(models.JournalEntry)
+        .filter(models.JournalEntry.tracker_id == tracker.id, models.JournalEntry.user_id == user_id)
+        .all()
+    )
+
+    analytics = build_tracker_analytics(tracker, logs, journals, current_user_id=user_id, context=context)
+
+    return {
+        "id": tracker.id,
+        "name": tracker.name,
+        "description": tracker.description or "",
+        "color": tracker.color or "",
+        "category": tracker.category,
+        "type": tracker.type,
+        "start_date": _format_timestamp(tracker.start_date),
+        "current_streak_start_date": _format_timestamp(tracker.current_streak_start_date),
+        "archived_at": _format_timestamp(tracker.archived_at) if tracker.archived_at else None,
+        "is_active": bool(tracker.is_active),
+        "unit": tracker.unit or "",
+        "impact_unit": tracker.impact_unit or "",
+        "impact_per": tracker.impact_per or "day",
+        "impact_amount": float(tracker.impact_amount or 0),
+        "units_per": tracker.units_per or "day",
+        "units_per_interval": int(tracker.units_per_interval or 1),
+        "units_per_amount": float(tracker.units_per_amount or 0),
+        "statistics": {
             "total_logs": len(logs),
-            "current_streak": analytics.streak_stats.current if analytics.streak_stats else 0,
-            "longest_streak": analytics.streak_stats.longest if analytics.streak_stats else 0,
-            "streak_period": analytics.streak_stats.period_label if analytics.streak_stats else "days",
-            "current_amount": float(analytics.current_math.main_unit) if analytics.current_math else 0,
-            "target_amount": float(analytics.current_math.target_unit) if analytics.current_math else 0,
-            "impact_value": float(analytics.current_math.impact_value) if analytics.current_math else 0,
-            "daily_progress": float(analytics.daily_progress.percentage) if analytics.daily_progress else 0,
-        }
-    return tracker_dict
+            "current_streak": analytics.streak_stats.current,
+            "longest_streak": analytics.streak_stats.longest,
+            "streak_period": analytics.streak_stats.period_label,
+            "current_amount": float(analytics.current_math.main_unit),
+            "target_amount": float(analytics.current_math.target_unit),
+            "impact_value": float(analytics.current_math.impact_value),
+            "lifetime_impact_value": float(analytics.current_math.lifetime_impact_value),
+            "daily_progress": float(analytics.daily_progress.percentage),
+            "completion_rate": float(analytics.consistency.rate),
+        },
+    }
+
+
+def _build_csv(export_payload: dict, db: Session, trackers: List[models.Tracker], user_id: int, data_type: str) -> str:
+    output = StringIO()
+    writer = csv.writer(output)
+
+    writer.writerow(["AnyHabit Data Export"])
+    writer.writerow(["Export Date", export_payload["export_date"]])
+    writer.writerow(["App Version", export_payload["app_version"]])
+    writer.writerow(["User", export_payload["user"]])
+    writer.writerow(["Email", export_payload["email"]])
+    writer.writerow([])
+
+    if data_type != "journals_only":
+        for tracker in trackers:
+            writer.writerow(["Tracker:", tracker.name])
+            writer.writerow(["Category", tracker.category])
+            writer.writerow(["Type", tracker.type])
+            writer.writerow(["Unit", tracker.unit or ""])
+            writer.writerow(["Start Date", _format_timestamp(tracker.start_date)])
+            writer.writerow(["Is Active", "Yes" if tracker.is_active else "No"])
+            writer.writerow(["Archived", "Yes" if tracker.archived_at else "No"])
+            writer.writerow([])
+
+            logs = _log_rows(db, tracker, user_id)
+            if logs:
+                writer.writerow(["Logs:"])
+                headers = list(logs[0].keys())
+                writer.writerow(headers)
+                for log in logs:
+                    writer.writerow([log.get(header, "") for header in headers])
+                writer.writerow([])
+
+            if data_type == "all":
+                journals = _journal_rows(db, tracker, user_id)
+                if journals:
+                    writer.writerow(["Journals:"])
+                    headers = list(journals[0].keys())
+                    writer.writerow(headers)
+                    for journal in journals:
+                        writer.writerow([journal.get(header, "") for header in headers])
+                    writer.writerow([])
+
+    if data_type == "journals_only":
+        writer.writerow(["All Journals:"])
+        writer.writerow(["Date", "Mood", "Mood Label", "Tracker", "Content", "Is Relapse"])
+        for journal in export_payload.get("journals", []):
+            writer.writerow(
+                [
+                    journal["date"],
+                    journal["mood"] or "",
+                    journal["mood_label"] or "",
+                    journal.get("tracker_name", ""),
+                    journal["content"],
+                    "Yes" if journal["is_relapse"] else "No",
+                ]
+            )
+
+    return output.getvalue()
 
 
 @router.get("/")
 def export_data(
-    data_type: str = Query("all", description="Type of data: all, trackers_only, journals_only, specific, backup"),
-    format: str = Query("json", description="Export format: json or csv"),
-    tracker_id: Optional[List[int]] = Query(None, description="Tracker IDs for specific export"),
+    data_type: str = Query("all", description="all, trackers_only, journals_only or specific"),
+    format: str = Query("json", description="json or csv"),
+    tracker_id: Optional[List[int]] = Query(None, description="Tracker IDs, used with data_type=specific"),
+    include_archived: bool = Query(True, description="Include archived trackers in the export"),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
+    context: PeriodContext = Depends(get_period_context),
 ) -> Response:
-    """Export user data in specified format."""
+    """Export the signed-in user's data.
 
-    if data_type not in ["all", "trackers_only", "journals_only", "specific", "backup"]:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid data_type")
+    JSON exports are restorable through ``POST /import/``; keep one before
+    upgrading if you want a rollback that does not involve the database file.
+    """
+    if data_type not in DATA_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"data_type must be one of: {', '.join(DATA_TYPES)}",
+        )
+    if format not in FORMATS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"format must be one of: {', '.join(FORMATS)}"
+        )
 
-    if format not in ["json", "csv"]:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid format")
-
-    if data_type == "backup":
+    is_backup = data_type == LEGACY_BACKUP_TYPE
+    if is_backup:
         if format != "json":
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Backup must be in JSON format")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="A backup must be exported as JSON"
+            )
+        # "backup" is a full export under an older name.
+        data_type = "all"
 
-        dashboards = db.query(models.UserDashboardState).filter(models.UserDashboardState.user_id == current_user.id).all()
-        groups = db.query(models.Group).filter(models.Group.owner_id == current_user.id).all()
-        user_trackers = db.query(models.Tracker).filter(models.Tracker.owner_id == current_user.id).all()
-
-        raw_trackers = []
-        for t in user_trackers:
-            t_dict = _model_to_dict(t)
-            logs = db.query(models.HabitLog).filter(models.HabitLog.tracker_id == t.id).all()
-            t_dict["logs"] = [_model_to_dict(l) for l in logs]
-            journals = db.query(models.JournalEntry).filter(models.JournalEntry.tracker_id == t.id).all()
-            t_dict["journals"] = [_model_to_dict(j) for j in journals]
-            raw_trackers.append(t_dict)
-
-        export_data = {
-            "version": "1.0",
-            "export_type": "backup",
-            "export_date": _format_timestamp(None),
-            "user": {
-                "id": current_user.id,
-                "username": current_user.username,
-                "email": current_user.email,
-                "created_at": _format_timestamp(current_user.created_at)
-            },
-            "dashboard_states": [_model_to_dict(d) for d in dashboards],
-            "groups": [_model_to_dict(g) for g in groups],
-            "trackers": raw_trackers
-        }
-        
-        return Response(content=json.dumps(export_data, indent=2, default=str), media_type="application/json")
-
-    user_trackers = db.query(models.Tracker).filter(models.Tracker.owner_id == current_user.id).all()
+    query = db.query(models.Tracker).filter(models.Tracker.owner_id == current_user.id)
+    if not include_archived:
+        query = query.filter(models.Tracker.archived_at.is_(None))
+    user_trackers = query.order_by(models.Tracker.id.asc()).all()
 
     if data_type == "specific":
         if not tracker_id:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="tracker_id required")
-        selected_tracker_ids = set(tracker_id)
-        export_trackers = [t for t in user_trackers if t.id in selected_tracker_ids]
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Select at least one tracker for a specific export",
+            )
+        selected = set(tracker_id)
+        export_trackers = [tracker for tracker in user_trackers if tracker.id in selected]
     else:
         export_trackers = user_trackers
 
-    export_data = {
+    export_payload: dict = {
+        "format": BACKUP_FORMAT,
+        "format_version": BACKUP_FORMAT_VERSION,
+        "app_version": APP_VERSION,
         "export_date": _format_timestamp(None),
         "user": current_user.username,
         "email": current_user.email,
+        "timezone": current_user.timezone or "UTC",
+        "week_start": current_user.week_start or "monday",
         "data_type": data_type,
+        # Read by v1.2.0's importer, which rejects anything without it.
+        "export_type": LEGACY_BACKUP_TYPE,
     }
 
     if data_type != "journals_only":
-        export_data["trackers"] = []
+        export_payload["trackers"] = []
         for tracker in export_trackers:
-            tracker_info = _get_tracker_info_with_stats(db, tracker, current_user.id)
-            tracker_info["logs"] = _get_tracker_logs_with_calculations(db, tracker, current_user.id)
+            row = _tracker_row(db, tracker, current_user.id, context)
+            row["logs"] = _log_rows(db, tracker, current_user.id)
             if data_type == "all":
-                tracker_info["journals"] = _get_tracker_journals_with_calculations(db, tracker, current_user.id)
-            export_data["trackers"].append(tracker_info)
+                row["journals"] = _journal_rows(db, tracker, current_user.id)
+            export_payload["trackers"].append(row)
 
-    if data_type in ["all", "journals_only"]:
-        all_journals = db.query(models.JournalEntry).filter(models.JournalEntry.user_id == current_user.id).all()
-        if data_type == "journals_only":
-            export_data["journals"] = []
-            for journal in all_journals:
-                mood_label = None
-                if journal.mood is not None:
-                    mood_labels = {1: "Very Bad", 2: "Bad", 3: "Neutral", 4: "Good", 5: "Very Good"}
-                    mood_label = mood_labels.get(journal.mood)
-                tracker_name = ""
-                if journal.tracker_id:
-                    tracker = db.query(models.Tracker).filter(models.Tracker.id == journal.tracker_id).first()
-                    tracker_name = tracker.name if tracker else ""
+    if data_type == "journals_only":
+        tracker_names = {tracker.id: tracker.name for tracker in user_trackers}
+        all_journals = (
+            db.query(models.JournalEntry)
+            .filter(models.JournalEntry.user_id == current_user.id)
+            .order_by(models.JournalEntry.timestamp.asc())
+            .all()
+        )
 
-                export_data["journals"].append({
-                    "id": journal.id, "tracker_name": tracker_name, "tracker_id": journal.tracker_id,
-                    "timestamp": _format_timestamp(journal.timestamp), "date": _format_timestamp(journal.timestamp).split("T")[0],
-                    "mood": journal.mood, "mood_label": mood_label, "content": journal.content or "", "is_relapse": journal.is_relapse,
-                })
+        export_payload["journals"] = []
+        for journal in all_journals:
+            timestamp = _format_timestamp(journal.timestamp)
+            export_payload["journals"].append(
+                {
+                    "id": journal.id,
+                    "tracker_name": tracker_names.get(journal.tracker_id, ""),
+                    "tracker_id": journal.tracker_id,
+                    "timestamp": timestamp,
+                    "date": timestamp.split("T")[0],
+                    "mood": journal.mood,
+                    "mood_label": MOOD_LABELS.get(journal.mood) if journal.mood is not None else None,
+                    "content": journal.content or "",
+                    "is_relapse": bool(journal.is_relapse),
+                }
+            )
+
+    stamp = utcnow().strftime("%Y-%m-%d")
+    filename = f"anyhabit-{'backup' if is_backup else 'export'}-{stamp}.{format}"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
 
     if format == "json":
-        json_str = json.dumps(export_data, indent=2, default=str)
-        return Response(content=json_str, media_type="application/json")
-    else:
-        output = StringIO()
-        writer = csv.writer(output)
-        writer.writerow(["AnyHabit Data Export"])
-        writer.writerow(["Export Date", _format_timestamp(None)])
-        writer.writerow(["User", current_user.username])
-        writer.writerow(["Email", current_user.email])
-        writer.writerow([])
+        return Response(
+            content=json.dumps(export_payload, indent=2, default=str),
+            media_type="application/json",
+            headers=headers,
+        )
 
-        if data_type != "journals_only":
-            for tracker in export_trackers:
-                writer.writerow(["Tracker:", tracker.name])
-                writer.writerow(["Category", tracker.category])
-                writer.writerow(["Type", tracker.type])
-                writer.writerow(["Unit", tracker.unit or ""])
-                writer.writerow(["Start Date", _format_timestamp(tracker.start_date)])
-                writer.writerow(["Is Active", "Yes" if tracker.is_active else "No"])
-                writer.writerow([])
-                logs = _get_tracker_logs_with_calculations(db, tracker, current_user.id)
-                if logs:
-                    writer.writerow(["Logs:"])
-                    log_headers = list(logs[0].keys()) if logs else []
-                    writer.writerow(log_headers)
-                    for log in logs:
-                        writer.writerow([log.get(h, "") for h in log_headers])
-                    writer.writerow([])
-                if data_type == "all":
-                    journals = _get_tracker_journals_with_calculations(db, tracker, current_user.id)
-                    if journals:
-                        writer.writerow(["Journals:"])
-                        journal_headers = list(journals[0].keys()) if journals else []
-                        writer.writerow(journal_headers)
-                        for journal in journals:
-                            writer.writerow([journal.get(h, "") for h in journal_headers])
-                        writer.writerow([])
-
-        if data_type in ["all", "journals_only"]:
-            all_journals = db.query(models.JournalEntry).filter(models.JournalEntry.user_id == current_user.id).all()
-            if all_journals and data_type == "journals_only":
-                writer.writerow(["All Journals:"])
-                writer.writerow(["Date", "Mood", "Mood Label", "Tracker", "Content", "Is Relapse"])
-                for journal in all_journals:
-                    mood_label = None
-                    if journal.mood is not None:
-                        mood_labels = {1: "Very Bad", 2: "Bad", 3: "Neutral", 4: "Good", 5: "Very Good"}
-                        mood_label = mood_labels.get(journal.mood)
-                    tracker_name = ""
-                    if journal.tracker_id:
-                        tracker = db.query(models.Tracker).filter(models.Tracker.id == journal.tracker_id).first()
-                        tracker_name = tracker.name if tracker else ""
-                    writer.writerow([
-                        _format_timestamp(journal.timestamp).split("T")[0], journal.mood or "",
-                        mood_label or "", tracker_name, journal.content or "", "Yes" if journal.is_relapse else "No",
-                    ])
-
-        csv_str = output.getvalue()
-        return Response(content=csv_str, media_type="text/csv")
-
-@router.post("/import/")
-async def import_data(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
-):
-    """Import user data from a backup JSON file."""
-    if not file.filename.endswith('.json'):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only JSON backup files are supported")
-    
-    try:
-        contents = await file.read()
-        data = json.loads(contents)
-    except Exception:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON file format")
-        
-    if data.get("export_type") != "backup":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File is not a valid AnyHabit backup")
-        
-    def parse_date(date_str):
-        if not date_str:
-            return None
-        try:
-            return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-        except ValueError:
-            return None
-
-    try:
-        for t_data in data.get("trackers", []):
-            t_data.pop("id", None)
-            logs_data = t_data.pop("logs", [])
-            journals_data = t_data.pop("journals", [])
-            t_data["owner_id"] = current_user.id
-            
-            if "start_date" in t_data and isinstance(t_data["start_date"], str):
-                t_data["start_date"] = parse_date(t_data["start_date"])
-            if "current_streak_start_date" in t_data and isinstance(t_data["current_streak_start_date"], str):
-                t_data["current_streak_start_date"] = parse_date(t_data["current_streak_start_date"])
-            
-            new_tracker = models.Tracker(**t_data)
-            db.add(new_tracker)
-            db.flush()
-            
-            for l_data in logs_data:
-                l_data.pop("id", None)
-                l_data["tracker_id"] = new_tracker.id
-                l_data["user_id"] = current_user.id
-                if "timestamp" in l_data and isinstance(l_data["timestamp"], str):
-                    l_data["timestamp"] = parse_date(l_data["timestamp"])
-                db.add(models.HabitLog(**l_data))
-                
-            for j_data in journals_data:
-                j_data.pop("id", None)
-                j_data["tracker_id"] = new_tracker.id
-                j_data["user_id"] = current_user.id
-                if "timestamp" in j_data and isinstance(j_data["timestamp"], str):
-                    j_data["timestamp"] = parse_date(j_data["timestamp"])
-                db.add(models.JournalEntry(**j_data))
-        
-        for g_data in data.get("groups", []):
-            g_data.pop("id", None)
-            g_data["owner_id"] = current_user.id
-            db.add(models.Group(**g_data))
-            
-        db.query(models.UserDashboardState).filter(models.UserDashboardState.user_id == current_user.id).delete()
-        for d_data in data.get("dashboard_states", []):
-            d_data.pop("id", None)
-            d_data["user_id"] = current_user.id
-            if "updated_at" in d_data and isinstance(d_data["updated_at"], str):
-                d_data["updated_at"] = parse_date(d_data["updated_at"])
-            db.add(models.UserDashboardState(**d_data))
-            
-        db.commit()
-        return {"message": "Data successfully imported"}
-        
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Import failed: {str(e)}")
+    return Response(
+        content=_build_csv(export_payload, db, export_trackers, current_user.id, data_type),
+        media_type="text/csv",
+        headers=headers,
+    )

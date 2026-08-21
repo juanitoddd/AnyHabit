@@ -1,42 +1,41 @@
-import { API_URL, API_FETCH_OPTIONS } from '../config/api';
+import { apiClient } from './apiClient';
 
-export const exportDataApi = async (params) => {
-  const urlParams = new URLSearchParams();
-  
-  if (params.data_type) urlParams.append('data_type', params.data_type);
-  if (params.format) urlParams.append('format', params.format);
-  
-  if (params.tracker_ids && params.tracker_ids.length > 0) {
-    params.tracker_ids.forEach(id => urlParams.append('tracker_id', id));
+export async function exportDataApi({ data_type = 'all', format = 'json', tracker_ids = null } = {}) {
+  const params = new URLSearchParams({ data_type, format });
+
+  if (Array.isArray(tracker_ids)) {
+    tracker_ids.forEach((id) => params.append('tracker_id', id));
   }
 
-  const response = await fetch(`${API_URL}/export/?${urlParams.toString()}`, {
-    ...API_FETCH_OPTIONS,
-    method: 'GET',
-  });
+  return apiClient.get(`/export/?${params.toString()}`, { parse: 'text' });
+}
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || 'Failed to export data');
-  }
+/**
+ * Restore a JSON backup.
+ *
+ * `dryRun` asks the server what *would* happen without writing anything, so the
+ * UI can show a preview before the user commits to a merge or a replace.
+ */
+export async function importDataApi(file, { mode = 'merge', dryRun = true, confirm = '' } = {}) {
+  const params = new URLSearchParams({ mode, dry_run: String(dryRun) });
+  if (confirm) params.set('confirm', confirm);
 
-  return await response.text();
-};
-
-export const importDataApi = async (file) => {
   const formData = new FormData();
   formData.append('file', file);
 
-  const response = await fetch(`${API_URL}/export/import/`, {
-    ...API_FETCH_OPTIONS,
-    method: 'POST',
-    body: formData,
-  });
+  return apiClient.upload(`/import/?${params.toString()}`, formData);
+}
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || 'Failed to import backup');
-  }
+/** Hand the browser a file without leaving the page. */
+export function downloadTextFile(contents, filename, mimeType) {
+  const blob = new Blob([contents], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
 
-  return await response.json();
-};
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
