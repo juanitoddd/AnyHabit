@@ -116,6 +116,56 @@ class UserDashboardState(Base):
     updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class ApiToken(Base):
+    """A long-lived personal access token.
+
+    Sessions expire and live in an HttpOnly cookie, which is deliberately
+    awkward to use from a script. These are what you point cron, Home Assistant
+    or your own dashboard at. Only a hash is stored — the plaintext is shown
+    once, at creation, and cannot be recovered afterwards.
+    """
+
+    __tablename__ = "api_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name = Column(String, nullable=False)
+    token_hash = Column(String, unique=True, index=True, nullable=False)
+    # First characters of the token, so the UI can tell two tokens apart.
+    token_prefix = Column(String, index=True, default="")
+    scope = Column(String, default="read_write")
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class Webhook(Base):
+    """An outbound HTTP callback fired when something happens.
+
+    The point of self-hosting is wiring the app into everything else you run,
+    so a log entry can light up a Home Assistant scene or post to Discord.
+    """
+
+    __tablename__ = "webhooks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name = Column(String, default="")
+    url = Column(String, nullable=False)
+    # Comma-separated event names; "*" means everything.
+    events = Column(String, default="*")
+    secret = Column(String, default="")
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow)
+    # Last delivery outcome, so a broken hook is visible without log diving.
+    last_status = Column(Integer, nullable=True)
+    last_error = Column(Text, default="")
+    last_triggered_at = Column(DateTime(timezone=True), nullable=True)
+    delivery_count = Column(Integer, default=0)
+    failure_count = Column(Integer, default=0)
+
+
 class SchemaMigration(Base):
     """Ledger of applied migrations.
 

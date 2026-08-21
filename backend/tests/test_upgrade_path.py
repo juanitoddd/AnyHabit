@@ -360,7 +360,15 @@ def main() -> int:
         from backend.version import APP_VERSION
 
         check("health reports the version", body["version"] == APP_VERSION, str(body))
-        check("health lists boot migrations", len(body["migrations_applied_on_boot"]) == 16, str(body))
+        from backend.migrations import MIGRATIONS
+
+        # Derived, not hardcoded: this count changes every time a migration is
+        # added, and the point of the check is "all of them ran", not "16 ran".
+        check(
+            "health lists every migration that ran",
+            len(body["migrations_applied_on_boot"]) == len(MIGRATIONS),
+            f'{len(body["migrations_applied_on_boot"])} of {len(MIGRATIONS)}',
+        )
 
     shutil.rmtree(workdir, ignore_errors=True)
 

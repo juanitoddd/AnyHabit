@@ -15,6 +15,7 @@ export default defineConfig({
       '/trackers': 'http://localhost:8000',
       '/groups': 'http://localhost:8000',
       '/dashboard': 'http://localhost:8000',
+      '/developer': 'http://localhost:8000',
       '/export': 'http://localhost:8000',
       '/import': 'http://localhost:8000',
       '/health': 'http://localhost:8000',

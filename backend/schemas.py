@@ -488,6 +488,109 @@ class ImportSummary(BaseModel):
     source_exported_at: Optional[str] = None
 
 
+# ---------------------------------------------------------------------------
+# Developer surface: tokens, webhooks, activity
+# ---------------------------------------------------------------------------
+
+
+class ApiTokenCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    # Days until expiry. Omit for a token that never expires.
+    expires_in_days: Optional[int] = Field(default=None, ge=1, le=3650)
+    scope: Literal["read", "read_write"] = "read_write"
+
+
+class ApiToken(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    token_prefix: str = ""
+    scope: str = "read_write"
+    created_at: Optional[datetime] = None
+    last_used_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+    revoked_at: Optional[datetime] = None
+
+
+class ApiTokenCreated(ApiToken):
+    """Returned once, at creation. ``token`` is never retrievable again."""
+
+    token: str
+
+
+class WebhookBase(BaseModel):
+    name: str = Field(default="", max_length=80)
+    url: str = Field(min_length=1, max_length=2000)
+    events: str = Field(default="*", max_length=500)
+    is_active: bool = True
+
+    @field_validator("url")
+    @classmethod
+    def _check_url(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized.startswith(("http://", "https://")):
+            raise ValueError("Webhook URL must start with http:// or https://")
+        return normalized
+
+
+class WebhookCreate(WebhookBase):
+    pass
+
+
+class WebhookUpdate(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=80)
+    url: Optional[str] = Field(default=None, max_length=2000)
+    events: Optional[str] = Field(default=None, max_length=500)
+    is_active: Optional[bool] = None
+
+    @field_validator("url")
+    @classmethod
+    def _check_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized.startswith(("http://", "https://")):
+            raise ValueError("Webhook URL must start with http:// or https://")
+        return normalized
+
+
+class Webhook(WebhookBase):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    secret: str = ""
+    created_at: Optional[datetime] = None
+    last_status: Optional[int] = None
+    last_error: str = ""
+    last_triggered_at: Optional[datetime] = None
+    delivery_count: int = 0
+    failure_count: int = 0
+
+
+class ActivityEntry(BaseModel):
+    """One row in the dashboard activity/journal feeds."""
+
+    kind: str
+    id: int
+    tracker_id: int
+    tracker_name: str
+    tracker_color: str = ""
+    timestamp: datetime
+    amount: Optional[float] = None
+    unit: str = ""
+    note: str = ""
+    content: str = ""
+    mood: Optional[int] = None
+    is_relapse: bool = False
+
+
+class ActivityFeed(BaseModel):
+    logs: list[ActivityEntry] = Field(default_factory=list)
+    journals: list[ActivityEntry] = Field(default_factory=list)
+    mood_trend: list[TrackerMoodPoint] = Field(default_factory=list)
+
+
 class SystemInfo(BaseModel):
     name: str
     version: str

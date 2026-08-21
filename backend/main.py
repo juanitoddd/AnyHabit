@@ -14,8 +14,10 @@ from fastapi.responses import JSONResponse
 from . import schemas
 from .migrations import prepare_database
 from .routers import (
+    activity_router,
     auth_router,
     dashboard_router,
+    developer_router,
     export_router,
     groups_router,
     import_router,
@@ -126,3 +128,5 @@ app.include_router(groups_router)
 app.include_router(export_router)
 app.include_router(import_router)
 app.include_router(legacy_import_router)
+app.include_router(developer_router)
+app.include_router(activity_router)

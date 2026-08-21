@@ -5,20 +5,39 @@ import {
   Check,
   Coins,
   GripHorizontal,
+  CalendarRange,
+  Code2,
   Flame,
   Layers,
   Menu,
+  MonitorPlay,
+  NotebookPen,
   Plus,
   RefreshCcw,
   Settings,
+  Smile,
+  Sparkles,
   Target,
   Users,
-  X
+  X,
+  Zap
 } from 'lucide-react';
 import { ResponsiveGridLayout, useContainerWidth } from 'react-grid-layout';
 import { useNavigate } from 'react-router-dom';
-import { fetchDashboardSummaryApi, fetchHomeDashboardApi, saveHomeDashboardApi } from '../../services/dashboardApi';
+import {
+  fetchActivityApi,
+  fetchDashboardSummaryApi,
+  fetchHomeDashboardApi,
+  saveHomeDashboardApi
+} from '../../services/dashboardApi';
+import { ApiExplorerWidget, EmbedWidget } from './widgets/DeveloperWidgets';
+import { ActivityFeedWidget, JournalFeedWidget, MoodTrendWidget, NotesWidget } from './widgets/FeedWidgets';
+import { HeatmapWidget, QuickLogWidget, TrackerSpotlightWidget } from './widgets/TrackerWidgets';
+import { FIELD_CLASS, LABEL_CLASS } from './widgets/helpers';
+import { TrackerMultiPicker, TrackerPicker } from './widgets/shared';
+import { createLogApi } from '../../services/trackerApi';
 import { useAppState } from '../../state/appState';
+import Modal from '../ui/Modal';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 
@@ -80,6 +99,69 @@ const WIDGET_DEFINITIONS = {
     description: 'Your longest running streaks right now.',
     defaultSize: { w: 6, h: 7, minW: 3, minH: 4 },
     defaultConfig: {}
+  },
+  trackerSpotlight: {
+    label: 'Tracker Spotlight',
+    icon: Sparkles,
+    description: 'One tracker up close, with a one-tap log button.',
+    defaultSize: { w: 4, h: 11, minW: 3, minH: 9 },
+    defaultConfig: { trackerId: null }
+  },
+  quickLog: {
+    label: 'Quick Log',
+    icon: Zap,
+    description: 'One-tap logging for the trackers you touch most.',
+    defaultSize: { w: 5, h: 8, minW: 3, minH: 4 },
+    defaultConfig: { trackerIds: [] }
+  },
+  heatmap: {
+    label: 'Consistency Heatmap',
+    icon: CalendarRange,
+    description: "A single tracker's last 24 weeks at a glance.",
+    defaultSize: { w: 6, h: 8, minW: 4, minH: 6 },
+    defaultConfig: { trackerId: null }
+  },
+  activityFeed: {
+    label: 'Recent Activity',
+    icon: Activity,
+    description: 'The latest entries logged across every tracker.',
+    defaultSize: { w: 5, h: 10, minW: 3, minH: 5 },
+    defaultConfig: {}
+  },
+  journalFeed: {
+    label: 'Journal Feed',
+    icon: NotebookPen,
+    description: 'Your most recent journal entries, wherever you wrote them.',
+    defaultSize: { w: 5, h: 10, minW: 3, minH: 5 },
+    defaultConfig: {}
+  },
+  moodTrend: {
+    label: 'Mood Trend',
+    icon: Smile,
+    description: 'Average journalled mood over time.',
+    defaultSize: { w: 6, h: 8, minW: 3, minH: 5 },
+    defaultConfig: {}
+  },
+  notes: {
+    label: 'Notes',
+    icon: NotebookPen,
+    description: 'A free-text note pinned to your dashboard.',
+    defaultSize: { w: 4, h: 7, minW: 2, minH: 3 },
+    defaultConfig: { text: '' }
+  },
+  apiExplorer: {
+    label: 'API Explorer',
+    icon: Code2,
+    description: 'Copy-ready request snippets against your own instance.',
+    defaultSize: { w: 6, h: 11, minW: 4, minH: 9 },
+    defaultConfig: { path: '/trackers/', snippet: 'curl' }
+  },
+  embed: {
+    label: 'Embed',
+    icon: MonitorPlay,
+    description: 'Show another page — a Grafana panel, a status board.',
+    defaultSize: { w: 6, h: 10, minW: 3, minH: 5 },
+    defaultConfig: { url: '', title: '' }
   }
 };
 
@@ -88,6 +170,9 @@ const WIDGET_TYPE_ALIASES = {
 };
 
 const WIDGET_TYPES = Object.keys(WIDGET_DEFINITIONS);
+
+// Widgets served by /dashboard/activity rather than /dashboard/summary.
+const ACTIVITY_WIDGET_TYPES = new Set(['activityFeed', 'journalFeed', 'moodTrend']);
 
 const EMPTY_LAYOUTS = Object.keys(GRID_COLS).reduce((acc, breakpoint) => {
   acc[breakpoint] = [];
@@ -288,6 +373,8 @@ function HomePage() {
     setSelectedTrackerId,
     confirm,
     notify,
+    reportError,
+    setIsSettingsOpen,
     isLoadingTrackers
   } = useAppState();
 
@@ -318,6 +405,8 @@ function HomePage() {
   const [isSavingDashboard, setIsSavingDashboard] = useState(false);
   const [dashboardSaveError, setDashboardSaveError] = useState('');
   const [dashboardSummary, setDashboardSummary] = useState(null);
+  const [activity, setActivity] = useState(null);
+  const [isLoadingActivity, setIsLoadingActivity] = useState(false);
 
   const [isWidgetPickerOpen, setIsWidgetPickerOpen] = useState(false);
   const [activeWidgetSettingsId, setActiveWidgetSettingsId] = useState(null);
@@ -344,6 +433,17 @@ function HomePage() {
   );
 
   const impactCandidateIds = useMemo(() => impactCandidates.map((tracker) => tracker.id), [impactCandidates]);
+
+  const widgetTrackerOptions = useMemo(
+    () => [...visibleTrackers].sort((a, b) => a.name.localeCompare(b.name)),
+    [visibleTrackers]
+  );
+
+  // A quit tracker has nothing to "log one of", so it is not offered here.
+  const loggableTrackerOptions = useMemo(
+    () => widgetTrackerOptions.filter((tracker) => tracker.type !== 'quit'),
+    [widgetTrackerOptions]
+  );
 
   const activeWidgetForSettings = useMemo(
     () => widgets.find((widget) => widget.id === activeWidgetSettingsId) || null,
@@ -409,6 +509,35 @@ function HomePage() {
       cancelled = true;
     };
   }, [trackers]);
+
+  // Loaded only when a widget that needs it is on the board, so a dashboard
+  // without feed widgets does not pay for the query.
+  const needsActivity = useMemo(
+    () => widgets.some((widget) => ACTIVITY_WIDGET_TYPES.has(widget.type)),
+    [widgets]
+  );
+
+  useEffect(() => {
+    if (!needsActivity) return undefined;
+
+    let cancelled = false;
+    setIsLoadingActivity(true);
+
+    fetchActivityApi(25)
+      .then((response) => {
+        if (!cancelled) setActivity(response);
+      })
+      .catch((error) => {
+        if (!cancelled) reportError(error);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingActivity(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [needsActivity, trackers, reportError]);
 
   useEffect(() => {
     if (!isHydrated) return;
@@ -519,6 +648,18 @@ function HomePage() {
         };
       })
     );
+  };
+
+  /** Log one unit against a tracker straight from a widget. */
+  const handleWidgetQuickLog = async (tracker) => {
+    await createLogApi(tracker.id, { amount: 1, timestamp: new Date().toISOString() });
+    notify.success(`Logged ${tracker.name}`);
+
+    // The summary drives the streak and focus widgets, so it is now stale.
+    refreshDashboardSummary();
+    if (needsActivity) {
+      fetchActivityApi(25).then(setActivity).catch(reportError);
+    }
   };
 
   const refreshDashboardSummary = async () => {
@@ -730,6 +871,74 @@ function HomePage() {
                             onOpenTracker={(tracker) => openTracker(tracker.id, normalizeCategory(tracker.category))}
                           />
                         )}
+
+                        {widget.type === 'trackerSpotlight' && (
+                          <TrackerSpotlightWidget
+                            config={widget.config || {}}
+                            trackerMap={trackerMap}
+                            onOpenTracker={(tracker) => openTracker(tracker.id, normalizeCategory(tracker.category))}
+                            onQuickLog={handleWidgetQuickLog}
+                            onError={reportError}
+                          />
+                        )}
+
+                        {widget.type === 'quickLog' && (
+                          <QuickLogWidget
+                            config={widget.config || {}}
+                            trackerMap={trackerMap}
+                            onQuickLog={handleWidgetQuickLog}
+                            onError={reportError}
+                          />
+                        )}
+
+                        {widget.type === 'heatmap' && (
+                          <HeatmapWidget
+                            config={widget.config || {}}
+                            trackerMap={trackerMap}
+                            onError={reportError}
+                          />
+                        )}
+
+                        {widget.type === 'activityFeed' && (
+                          <ActivityFeedWidget
+                            activity={activity}
+                            isLoading={isLoadingActivity}
+                            onOpenTracker={(trackerId) =>
+                              openTracker(trackerId, normalizeCategory(trackerMap[trackerId]?.category))
+                            }
+                          />
+                        )}
+
+                        {widget.type === 'journalFeed' && (
+                          <JournalFeedWidget
+                            activity={activity}
+                            isLoading={isLoadingActivity}
+                            onOpenTracker={(trackerId) =>
+                              openTracker(trackerId, normalizeCategory(trackerMap[trackerId]?.category))
+                            }
+                          />
+                        )}
+
+                        {widget.type === 'moodTrend' && (
+                          <MoodTrendWidget activity={activity} isLoading={isLoadingActivity} />
+                        )}
+
+                        {widget.type === 'notes' && (
+                          <NotesWidget
+                            config={widget.config || {}}
+                            onConfigChange={(patch) => updateWidgetConfig(widget.id, patch)}
+                          />
+                        )}
+
+                        {widget.type === 'apiExplorer' && (
+                          <ApiExplorerWidget
+                            config={widget.config || {}}
+                            onConfigChange={(patch) => updateWidgetConfig(widget.id, patch)}
+                            onOpenSettings={() => setIsSettingsOpen(true)}
+                          />
+                        )}
+
+                        {widget.type === 'embed' && <EmbedWidget config={widget.config || {}} />}
                       </div>
                     </div>
                   </div>
@@ -740,97 +949,63 @@ function HomePage() {
         )}
       </div>
 
-      {activeWidgetForSettings && (
-        <div className="fixed inset-0 z-[72] px-4 py-8 md:py-14" onClick={() => setActiveWidgetSettingsId(null)}>
-          <div className="absolute inset-0 bg-stone-900/30 backdrop-blur-[1px]" />
+      {/* Both of these used to be hand-rolled overlays, which is why neither
+          closed on Escape while every other dialog did. */}
+      <Modal
+        isOpen={Boolean(activeWidgetForSettings)}
+        onClose={() => setActiveWidgetSettingsId(null)}
+        title="Widget settings"
+        description="Customise the title and this widget's own options."
+        size="xl"
+      >
+        {activeWidgetForSettings && (
+          <WidgetSettingsPanel
+            key={activeWidgetForSettings.id}
+            widget={activeWidgetForSettings}
+            definition={WIDGET_DEFINITIONS[activeWidgetForSettings.type]}
+            trackerMap={trackerMap}
+            impactCandidates={impactCandidates}
+            allTrackers={widgetTrackerOptions}
+            loggableTrackers={loggableTrackerOptions}
+            onTitleChange={(nextTitle) => updateWidgetTitle(activeWidgetForSettings.id, nextTitle)}
+            onConfigChange={(patch) => updateWidgetConfig(activeWidgetForSettings.id, patch)}
+          />
+        )}
+      </Modal>
 
-          <div
-            className="relative max-w-2xl mx-auto bg-white border border-gray-200 rounded-3xl shadow-2xl p-4 md:p-6"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h3 className="text-lg md:text-xl font-semibold text-stone-900">Widget Settings</h3>
-                <p className="text-sm text-gray-500 mt-1">Customize title and widget-specific options.</p>
-              </div>
+      <Modal
+        isOpen={isWidgetPickerOpen}
+        onClose={() => setIsWidgetPickerOpen(false)}
+        title="Add a widget"
+        description="Pick what you want on your home dashboard."
+        size="2xl"
+      >
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+          {WIDGET_TYPES.map((widgetType) => {
+            const definition = WIDGET_DEFINITIONS[widgetType];
+            const Icon = definition.icon;
 
+            return (
               <button
+                key={widgetType}
                 type="button"
-                onClick={() => setActiveWidgetSettingsId(null)}
-                className="w-9 h-9 rounded-xl border border-gray-200 text-gray-500 hover:text-stone-800 hover:bg-stone-50 flex items-center justify-center transition-colors"
-                aria-label="Close widget settings"
+                onClick={() => handleAddWidget(widgetType)}
+                className="w-full rounded-2xl border border-gray-200 px-4 py-3 text-left transition-colors hover:border-stone-300 hover:bg-stone-50"
               >
-                <X size={16} />
+                <span className="flex items-start gap-3">
+                  <span className="mt-0.5 rounded-md bg-stone-100 p-1.5 text-stone-700">
+                    <Icon size={14} />
+                  </span>
+                  <span className="block min-w-0">
+                    <span className="block text-sm font-semibold text-stone-900">{definition.label}</span>
+                    <span className="mt-0.5 block text-xs text-gray-500">{definition.description}</span>
+                  </span>
+                </span>
               </button>
-            </div>
-
-            <div className="mt-4">
-              <WidgetSettingsPanel
-                key={activeWidgetForSettings.id}
-                widget={activeWidgetForSettings}
-                definition={WIDGET_DEFINITIONS[activeWidgetForSettings.type]}
-                trackerMap={trackerMap}
-                impactCandidates={impactCandidates}
-                onTitleChange={(nextTitle) => updateWidgetTitle(activeWidgetForSettings.id, nextTitle)}
-                onConfigChange={(patch) => updateWidgetConfig(activeWidgetForSettings.id, patch)}
-              />
-            </div>
-          </div>
+            );
+          })}
         </div>
-      )}
-
-      {isWidgetPickerOpen && (
-        <div className="fixed inset-0 z-[70] px-4 py-8 md:py-14" onClick={() => setIsWidgetPickerOpen(false)}>
-          <div className="absolute inset-0 bg-stone-900/30 backdrop-blur-[1px]" />
-
-          <div
-            className="relative max-w-3xl mx-auto bg-white border border-gray-200 rounded-3xl shadow-2xl p-4 md:p-6"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h3 className="text-lg md:text-xl font-semibold text-stone-900">Add Widget</h3>
-                <p className="text-sm text-gray-500 mt-1">Choose the widget you want to add to your home dashboard.</p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setIsWidgetPickerOpen(false)}
-                className="w-9 h-9 rounded-xl border border-gray-200 text-gray-500 hover:text-stone-800 hover:bg-stone-50 flex items-center justify-center transition-colors"
-              >
-                <X size={16} />
-              </button>
-            </div>
-
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-2">
-              {WIDGET_TYPES.map((widgetType) => {
-                const definition = WIDGET_DEFINITIONS[widgetType];
-                const Icon = definition.icon;
-
-                return (
-                  <button
-                    key={widgetType}
-                    type="button"
-                    onClick={() => handleAddWidget(widgetType)}
-                    className="text-left w-full rounded-2xl border border-gray-200 px-4 py-3 hover:bg-stone-50 hover:border-stone-300 transition-colors"
-                  >
-                    <div className="flex items-start gap-3">
-                      <span className="mt-0.5 rounded-md p-1.5 bg-stone-100 text-stone-700">
-                        <Icon size={14} />
-                      </span>
-
-                      <span className="block min-w-0">
-                        <span className="block text-sm font-semibold text-stone-900">{definition.label}</span>
-                        <span className="block text-xs text-gray-500 mt-0.5">{definition.description}</span>
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 }
@@ -840,6 +1015,8 @@ function WidgetSettingsPanel({
   definition,
   trackerMap,
   impactCandidates,
+  allTrackers,
+  loggableTrackers,
   onTitleChange,
   onConfigChange
 }) {
@@ -877,6 +1054,83 @@ function WidgetSettingsPanel({
           onConfigChange={onConfigChange}
         />
       )}
+
+      {(widget.type === 'trackerSpotlight' || widget.type === 'heatmap') && (
+        <TrackerPicker
+          trackers={allTrackers}
+          value={widget.config?.trackerId ?? null}
+          onChange={(trackerId) => onConfigChange({ trackerId })}
+          label={widget.type === 'heatmap' ? 'Tracker to chart' : 'Tracker to feature'}
+        />
+      )}
+
+      {widget.type === 'quickLog' && (
+        <TrackerMultiPicker
+          trackers={loggableTrackers}
+          selectedIds={widget.config?.trackerIds || []}
+          onChange={(trackerIds) => onConfigChange({ trackerIds })}
+          label="Trackers to show buttons for"
+        />
+      )}
+
+      {widget.type === 'embed' && <EmbedSettings widget={widget} onConfigChange={onConfigChange} />}
+
+      {widget.type === 'notes' && (
+        <p className="text-xs text-gray-500">
+          Type directly into the widget on the dashboard — the text saves as you go.
+        </p>
+      )}
+
+      {widget.type === 'apiExplorer' && (
+        <p className="text-xs text-gray-500">
+          Pick the endpoint and language on the widget itself. Create the token it needs under
+          Settings → Developer.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function EmbedSettings({ widget, onConfigChange }) {
+  const url = widget.config?.url || '';
+  const isValid = !url || /^https?:\/\//i.test(url);
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className={LABEL_CLASS} htmlFor="embed-url">
+          Page URL
+        </label>
+        <input
+          id="embed-url"
+          type="url"
+          value={url}
+          onChange={(event) => onConfigChange({ url: event.target.value })}
+          placeholder="https://grafana.local/d-solo/abc/panel"
+          className={FIELD_CLASS}
+        />
+        {!isValid && <p className="mt-1.5 text-[11px] text-rose-600">Must start with http:// or https://</p>}
+      </div>
+
+      <div>
+        <label className={LABEL_CLASS} htmlFor="embed-title">
+          Accessible title
+        </label>
+        <input
+          id="embed-title"
+          type="text"
+          value={widget.config?.title || ''}
+          onChange={(event) => onConfigChange({ title: event.target.value })}
+          placeholder="Grafana — server load"
+          className={FIELD_CLASS}
+        />
+      </div>
+
+      <p className="text-[11px] leading-5 text-gray-500">
+        The page is loaded in a sandboxed frame with no access to your AnyHabit session. Sites that send
+        <code className="mx-1 rounded bg-stone-100 px-1 font-mono">X-Frame-Options</code>
+        will refuse to load — most public sites do.
+      </p>
     </div>
   );
 }

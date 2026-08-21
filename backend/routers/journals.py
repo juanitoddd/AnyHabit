@@ -5,7 +5,7 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from .. import models, schemas
+from .. import models, schemas, webhooks
 from ..access import require_tracker_access
 from ..deps import get_current_user, get_db
 from ..time_utils import to_utc, utcnow
@@ -37,7 +37,7 @@ def create_journal_entry(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    require_tracker_access(db, current_user.id, tracker_id)
+    tracker = require_tracker_access(db, current_user.id, tracker_id)
 
     db_entry = models.JournalEntry(
         tracker_id=tracker_id,
@@ -49,6 +49,21 @@ def create_journal_entry(
     db.add(db_entry)
     db.commit()
     db.refresh(db_entry)
+
+    webhooks.dispatch(
+        db,
+        current_user.id,
+        "journal.created",
+        {
+            "journal": {
+                "id": db_entry.id,
+                "mood": db_entry.mood,
+                "content": db_entry.content,
+                "timestamp": db_entry.timestamp,
+            },
+            "tracker": {"id": tracker.id, "name": tracker.name},
+        },
+    )
     return db_entry
 
 

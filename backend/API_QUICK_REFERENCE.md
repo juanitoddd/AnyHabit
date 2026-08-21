@@ -15,9 +15,20 @@ There is **no `/api` prefix** — routes are mounted at the root.
 
 ## Authentication
 
-Every endpoint except `/`, `/health` and `/version` requires a session.
-Sign in once and reuse the `HttpOnly` cookie, or send
-`Authorization: Bearer <access_token>` from the login response.
+Every endpoint except `/`, `/health` and `/version` requires credentials. There
+are two ways to present them.
+
+**Personal access token — use this for scripts.** Create one under
+Settings → Developer, or via `POST /developer/tokens`. It does not expire
+unless you say so, and it is revocable.
+
+```bash
+export ANYHABIT_TOKEN=ahb_your_token_here
+curl -H "Authorization: Bearer $ANYHABIT_TOKEN" http://localhost:8000/trackers/
+```
+
+**Session cookie — what the web UI uses.** Sign in and reuse the `HttpOnly`
+cookie, or send the `access_token` from the login response as a bearer token.
 
 ```bash
 curl -c cookies.txt -X POST http://localhost:8000/auth/login \
@@ -145,8 +156,92 @@ Journal entries stay private to their author, even on a shared tracker.
 | Method | Path | Purpose |
 | :--- | :--- | :--- |
 | `GET` | `/dashboard/summary` | Totals, category breakdown, impact rows, streaks, today's progress |
+| `GET` | `/dashboard/activity?limit=20` | Recent logs and journal entries across every tracker, plus a mood trend |
 | `GET` | `/dashboard/home` | Saved widget layout |
 | `PUT` | `/dashboard/home` | Save widget layout |
+
+## Developer
+
+| Method | Path | Purpose |
+| :--- | :--- | :--- |
+| `GET` | `/developer/tokens` | List your tokens (values are never returned) |
+| `POST` | `/developer/tokens` | Issue a token — the only response containing its value |
+| `DELETE` | `/developer/tokens/{id}` | Revoke a token, effective immediately |
+| `GET` | `/developer/webhooks` | List webhooks with their delivery stats |
+| `POST` | `/developer/webhooks` | Register a webhook |
+| `PATCH` | `/developer/webhooks/{id}` | Rename, re-point, re-subscribe or pause |
+| `POST` | `/developer/webhooks/{id}/test` | Send a sample delivery |
+| `DELETE` | `/developer/webhooks/{id}` | Remove a webhook |
+| `GET` | `/developer/webhooks/events` | The event names you can subscribe to |
+| `GET` | `/developer/metrics` | Prometheus exposition of your own trackers |
+
+```bash
+# Issue a token that never expires
+curl -b cookies.txt -X POST http://localhost:8000/developer/tokens \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Home Assistant"}'
+# => {"id":1,"name":"Home Assistant","token":"ahb_...","token_prefix":"ahb_AbCd"}
+```
+
+### Webhooks
+
+AnyHabit POSTs JSON to your URL when something happens. Delivery is
+best-effort on a background thread with a 5 second timeout — a webhook can
+never slow down or fail the action that triggered it. Outcomes are recorded on
+the webhook so a broken endpoint is visible in the UI.
+
+| Event | Fires when |
+| :--- | :--- |
+| `log.created` | An activity is logged |
+| `log.deleted` | A log entry is removed |
+| `journal.created` | A journal entry is written |
+| `tracker.created` | A tracker is created |
+| `tracker.relapse` | A relapse is recorded |
+| `tracker.archived` | A tracker is archived |
+| `streak.milestone` | A streak reaches 3, 7, 14, 21, 30, 50, 100, 365 … |
+
+Payload shape:
+
+```json
+{
+  "event": "log.created",
+  "sent_at": "2026-08-21T09:15:00+00:00",
+  "version": "1.4.0",
+  "data": {
+    "log": { "id": 42, "amount": 30.0, "note": "morning run", "timestamp": "..." },
+    "tracker": { "id": 7, "name": "Running", "unit": "Minutes", "type": "build" }
+  }
+}
+```
+
+Every request carries `X-AnyHabit-Event` and, when the webhook has a secret,
+`X-AnyHabit-Signature: sha256=<hmac>` over the raw body. Verify it:
+
+```python
+import hashlib, hmac
+
+expected = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
+assert hmac.compare_digest(f"sha256={expected}", request.headers["X-AnyHabit-Signature"])
+```
+
+### Prometheus
+
+```yaml
+scrape_configs:
+  - job_name: anyhabit
+    metrics_path: /developer/metrics
+    authorization:
+      credentials: ahb_your_token_here
+    static_configs:
+      - targets: ["anyhabit.local"]
+```
+
+Exposes `anyhabit_trackers_total`, `anyhabit_trackers_active`,
+`anyhabit_due_current_period`, `anyhabit_completed_current_period`,
+`anyhabit_logs_total`, `anyhabit_journal_entries_total`, and per-tracker
+`anyhabit_tracker_streak_current`, `anyhabit_tracker_progress_percent` and
+`anyhabit_tracker_impact_value`. Metrics are scoped to the token's owner, so a
+shared instance never leaks one person's habits into someone else's dashboard.
 
 ## Backup and restore
 

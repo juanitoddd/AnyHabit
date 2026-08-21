@@ -27,3 +27,4 @@ build/
 # Test artefacts
 tests/.downloads/
 tests/*.png
+tests/node_modules
