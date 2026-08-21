@@ -357,7 +357,9 @@ def main() -> int:
     check("health returns 200", health.status_code == 200)
     if health.status_code == 200:
         body = health.json()
-        check("health reports the version", body["version"] == "0.7.0", str(body))
+        from backend.version import APP_VERSION
+
+        check("health reports the version", body["version"] == APP_VERSION, str(body))
         check("health lists boot migrations", len(body["migrations_applied_on_boot"]) == 16, str(body))
 
     shutil.rmtree(workdir, ignore_errors=True)

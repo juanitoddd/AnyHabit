@@ -31,6 +31,10 @@ from ..time_utils import ensure_utc, to_utc, utcnow
 
 router = APIRouter(prefix="/import", tags=["import"])
 
+# v1.2.0 served the importer at /export/import/. Both addresses reach the same
+# handler so upgrading does not silently break anyone's tooling.
+legacy_router = APIRouter(prefix="/export", tags=["import"])
+
 MAX_UPLOAD_BYTES = int(1024 * 1024 * 25)
 REPLACE_CONFIRMATION = "REPLACE MY DATA"
 
@@ -143,7 +147,8 @@ def _apply_import(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The backup file is not valid JSON")
 
     declared_format = payload.get("format")
-    if declared_format and declared_format != "anyhabit-backup":
+    is_recognised = declared_format == "anyhabit-backup" or payload.get("export_type") == "backup"
+    if declared_format and not is_recognised:
         warnings.append(f"File declares format '{declared_format}'; importing it as a best-effort attempt.")
 
     raw_trackers = payload.get("trackers")
@@ -301,6 +306,7 @@ def _apply_import(
     return summary
 
 
+@legacy_router.post("/import/", response_model=schemas.ImportSummary, include_in_schema=False)
 @router.post("/", response_model=schemas.ImportSummary)
 async def import_data(
     file: UploadFile = File(..., description="A JSON export produced by GET /export/"),

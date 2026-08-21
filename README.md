@@ -18,14 +18,14 @@
 > **Try it now:** [Explore the Live Demo Site](https://sparths.github.io/anyhabit-demo/)  
 > **Join the Community:** [AnyHabit Discord Server](https://discord.gg/ajknBq5zcH) — Get support, showcase your work, and chat with fellow devs!
 
-![AnyHabit Demo](assets/demo.gif)
+![AnyHabit Demo](assets/homepage.png)
 
 <details>
 <summary><b>🚀 Click to see Recent Updates (Changelog)</b></summary>
 
-#### [v0.7.0] - Latest Release
+#### [v1.3.0] - Latest Release
 - **Added:** Your own time zone — streaks and daily targets now reset at *your* midnight, not UTC midnight
-- **Added:** Restore from a backup (Settings → Data), with a preview of exactly what will change
+- **Added:** Restore from a backup with a preview of exactly what will change, in Settings → Data
 - **Added:** Automatic database snapshot before every upgrade, kept in `data/backups/`
 - **Added:** Archive trackers instead of deleting them, keeping all history
 - **Added:** Search everything with `Ctrl`/`⌘` + `K`
@@ -40,48 +40,31 @@
 - **Fixed:** `ANYHABIT_SECRET_KEY` and the other documented settings were never passed to the backend
 - **Fixed:** Signing in failed over plain HTTP on a LAN address (Secure-cookie default)
 - **Fixed:** Errors were swallowed silently instead of being shown
-- [Full Changelog](https://github.com/Sparths/AnyHabit/compare/v0.6.2...v0.7.0)
+- [Full Changelog](https://github.com/Sparths/AnyHabit/compare/v1.2.0...v1.3.0)
 
-#### [v0.6.2] - Historical Progress
-- **Added:** Historical Progress/Heatmap
-- [Full Changelog](https://github.com/Sparths/AnyHabit/compare/v0.6.1...v0.6.2)
+#### [v1.2.0] - Data Export
+- **Added:** Data Export
+- [Full Changelog](https://github.com/Sparths/AnyHabit/compare/v1.1.0...v1.2.0)
 
-#### [v0.6.1] - Mobile Support
-- **Added:** Better Mobile Layout
-- [Full Changelog](https://github.com/Sparths/AnyHabit/compare/v0.6.0...v0.6.1)
+#### [v1.0.0] - Multi User
+- **Added:** Multi User Support
+- [Full Changelog](https://github.com/Sparths/AnyHabit/compare/v0.10.0...v1.0.0)
 
-#### [v0.6.0] - Relapse Feature
-- **Added:** Add Relapse Feature that resets your Tracker without having to delete the whole tracker and loosing all Journal Entries
-- **Fix:** Changed that Impact Units go up based on actual units logged.
-- [Full Changelog](https://github.com/Sparths/AnyHabit/compare/v0.5.0...v0.6.0)
-  
-#### [v0.5.0] - Custom Impact Units
-- **Added:** Support custom impact units!
-- [Full Changelog](https://github.com/Sparths/AnyHabit/compare/v0.4.0...v0.5.0)
+#### [v0.10.0] - Stand Alone API
+- **Added:** Stand Alone API
+- [Full Changelog](https://github.com/Sparths/AnyHabit/compare/v0.9.0...v0.10.0)
 
-#### [v0.4.0] - Logic Update
-- **Added:** New Tracker Type "Boolean"!
-- [Full Changelog](https://github.com/Sparths/AnyHabit/compare/v0.3.1...v0.4.0)
+#### [v0.9.0] - Widgets
+- **Added:** Homepage Widgets
+- [Full Changelog](https://github.com/Sparths/AnyHabit/compare/v0.8.0...v0.9.0)
 
-#### [v0.3.1] - UI Enhancement
-- **Added:** Fix Darkmode Colors
-- [Full Changelog](https://github.com/Sparths/AnyHabit/compare/v0.3.0...v0.3.1)
+#### [v0.8.0] - Habit Scheduling
+- **Added:** Flexible Habit Scheduling
+- [Full Changelog](https://github.com/Sparths/AnyHabit/compare/v0.7.0...v0.8.0)
 
-#### [v0.3.0] - UX Enhancement
-- **Added:** Category support for better tracker organization.
-- [Full Changelog](https://github.com/Sparths/AnyHabit/compare/v0.2.0...v0.3.0)
-
-#### [v0.2.0] - UI Enhancement
-- **Added:** Full Dark Mode / Light Mode support.
-- **Added:** Dedicated Settings window for better customization.
-- [Full Changelog](https://github.com/Sparths/AnyHabit/compare/v0.1.1...v0.2.0)
-
-#### [v0.1.1] - Small Fixes
-- **Fixed:** Visual bug where an unnecessary 's' was appended to units.
-- **Added:** Timestamps showing exactly when a tracker was created.
-
-#### [v0.1.0] - Initial Release!
-- Launch of AnyHabit: Dual tracking modes, financial impact calculation, daily journal, and one-command Docker deployment.
+#### [v0.7.0] - Refactor App Structure
+- **Added:** Refactor app structure, Fix Bugs
+- [Full Changelog](https://github.com/Sparths/AnyHabit/compare/v0.6.3...v0.7.0)
 </details>
 
 ---
@@ -95,12 +78,12 @@
 * **Shared Trackers:** Assign group members to one tracker and compare progress per participant.
 * **Dual Streaks:** Individual streaks alongside a collective group streak.
 * **Real Insight:** Streaks, consistency rate, weekday breakdown, heatmap and mood-over-time charts.
-* **Financial (and any other) Impact:** Money saved, CO₂ avoided, hours reclaimed — you pick the unit.
+* **Impact Units:** Money saved, Calories, CO₂ avoided, hours reclaimed — you pick the unit.
 * **Daily Journal:** Log your mood and thoughts, then search back through them.
-* **Backup & Restore:** Export everything as JSON and import it again, with a preview before anything changes.
 * **Safe Upgrades:** The database is snapshotted automatically before any schema change.
 * **Fast Navigation:** `Ctrl`/`⌘` + `K` searches trackers, categories and actions.
 * **Dark Mode:** Light, dark, or follow your system.
+* **Full Data Ownership:** Export trackers and journals as CSV for analysis, or a complete JSON backup you can restore here or on another server.
 * **Self-Hosted & Private:** Complete control over your data with SQLite and Docker.
 
 ---
@@ -222,8 +205,11 @@ curl -b cookies.txt http://localhost/trackers/1/bundle
 curl http://localhost/health
 ```
 
-Interactive docs are served by the app itself:
-**[Swagger UI](http://localhost/docs)** · **[ReDoc](http://localhost/redoc)**
+Interactive docs are served by the app itself —
+**[Swagger UI](http://localhost/docs)** · **[ReDoc](http://localhost/redoc)** —
+or browse them on the hosted demo:
+**[Swagger UI](https://anyhabit.onrender.com/docs)** ·
+**[ReDoc](https://anyhabit.onrender.com/redoc)**
 
 ---
 
@@ -253,10 +239,10 @@ Join our **[Discord Server](https://discord.gg/ajknBq5zcH)** to:
 
 ## ⭐ Star History
 
-<a href="https://www.star-history.com/?repos=Sparths%2FAnyHabit&type=date&legend=top-left">
+<a href="[https://www.star-history.com/?repos=Sparths%2FAnyHabit&type=date&legend=top-left](https://www.star-history.com/?repos=Sparths%2FAnyHabit&type=date&legend=top-left)">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="[https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&theme=dark&legend=top-left](https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&theme=dark&legend=top-left)" />
+   <source media="(prefers-color-scheme: light)" srcset="[https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&legend=top-left](https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&legend=top-left)" />
+   <img alt="Star History Chart" src="[https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&legend=top-left](https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&legend=top-left)" />
  </picture>
 </a>

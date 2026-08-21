@@ -154,6 +154,10 @@ Journal entries stay private to their author, even on a shared tracker.
 | :--- | :--- | :--- |
 | `GET` | `/export/?data_type=all&format=json` | Export. JSON is restorable; CSV is not. |
 | `POST` | `/import/?mode=merge&dry_run=true` | Import a JSON export |
+| `POST` | `/export/import/` | Same importer, at the address v1.2.0 used |
+
+`data_type` accepts `all`, `trackers_only`, `journals_only`, `specific` and
+`backup`. `backup` is v1.2.0's name for a full JSON export and still works.
 
 ```bash
 # Back up
@@ -171,6 +175,14 @@ curl -b cookies.txt -X POST 'http://localhost:8000/import/?mode=merge&dry_run=fa
 
 `mode=replace` deletes your existing trackers first and additionally requires
 `confirm=REPLACE%20MY%20DATA`.
+
+### Backup compatibility
+
+Exports are stamped with both `format: "anyhabit-backup"` and
+`export_type: "backup"`, so a file produced here restores on v1.2.0 and a file
+produced by v1.2.0 restores here. `POST /export/import/` remains available as
+an alias of `POST /import/` for tooling written against v1.2.0; it accepts the
+same `mode`, `dry_run` and `confirm` parameters.
 
 ---
 

@@ -117,7 +117,12 @@ try {
 
   await page.getByRole('button', { name: /^About/ }).click();
   await page.waitForSelector('text=Version', { timeout: 5000 });
-  check('about tab shows the server version', await page.locator('text=0.7.0').first().isVisible());
+  const reportedVersion = await (await fetch(`${BASE}/version`)).json();
+  check(
+    'about tab shows the server version',
+    await page.locator(`text=${reportedVersion.version}`).first().isVisible(),
+    reportedVersion.version
+  );
   await page.keyboard.press('Escape');
 
   console.log('\n[8] Dark mode reaches the sign-in screen');

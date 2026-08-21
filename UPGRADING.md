@@ -26,7 +26,7 @@ On every start, AnyHabit:
    `schema_migrations` ledger inside your database.
 2. **Takes a snapshot first** if there is anything to migrate and your database
    already contains data. The copy lands in `data/backups/` inside the same
-   volume, named like `anyhabit-pre-migration-v0.7.0-20260821T101500Z.db`.
+   volume, named like `anyhabit-pre-migration-v1.3.0-20260821T101500Z.db`.
 3. **Applies only the missing migrations**, one transaction each.
 
 Every migration is **additive and idempotent**: it adds columns, tables and
@@ -76,7 +76,7 @@ docker compose start backend
 
 ## Version-specific notes
 
-### Upgrading to 0.7.0
+### Upgrading to 1.3.0
 
 Nothing is required of you, but a few things will look different:
 

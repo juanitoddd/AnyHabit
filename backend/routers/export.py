@@ -27,7 +27,12 @@ router = APIRouter(prefix="/export", tags=["export"])
 BACKUP_FORMAT = "anyhabit-backup"
 BACKUP_FORMAT_VERSION = 1
 
-DATA_TYPES = ("all", "trackers_only", "journals_only", "specific")
+DATA_TYPES = ("all", "trackers_only", "journals_only", "specific", "backup")
+
+# v1.2.0 called a full export "backup" and stamped it `export_type: backup`.
+# That name still works, and the marker is still written, so files produced by
+# either version are readable by the importer of either version.
+LEGACY_BACKUP_TYPE = "backup"
 FORMATS = ("json", "csv")
 
 MOOD_LABELS = {1: "Very Bad", 2: "Bad", 3: "Neutral", 4: "Good", 5: "Very Good"}
@@ -233,6 +238,15 @@ def export_data(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"format must be one of: {', '.join(FORMATS)}"
         )
 
+    is_backup = data_type == LEGACY_BACKUP_TYPE
+    if is_backup:
+        if format != "json":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="A backup must be exported as JSON"
+            )
+        # "backup" is a full export under an older name.
+        data_type = "all"
+
     query = db.query(models.Tracker).filter(models.Tracker.owner_id == current_user.id)
     if not include_archived:
         query = query.filter(models.Tracker.archived_at.is_(None))
@@ -259,6 +273,8 @@ def export_data(
         "timezone": current_user.timezone or "UTC",
         "week_start": current_user.week_start or "monday",
         "data_type": data_type,
+        # Read by v1.2.0's importer, which rejects anything without it.
+        "export_type": LEGACY_BACKUP_TYPE,
     }
 
     if data_type != "journals_only":
@@ -297,7 +313,7 @@ def export_data(
             )
 
     stamp = utcnow().strftime("%Y-%m-%d")
-    filename = f"anyhabit-export-{stamp}.{format}"
+    filename = f"anyhabit-{'backup' if is_backup else 'export'}-{stamp}.{format}"
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
 
     if format == "json":

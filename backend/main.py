@@ -19,6 +19,7 @@ from .routers import (
     export_router,
     groups_router,
     import_router,
+    legacy_import_router,
     journals_router,
     logs_router,
     trackers_router,
@@ -124,3 +125,4 @@ app.include_router(auth_router)
 app.include_router(groups_router)
 app.include_router(export_router)
 app.include_router(import_router)
+app.include_router(legacy_import_router)

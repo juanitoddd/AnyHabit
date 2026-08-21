@@ -3,7 +3,7 @@
 Welcome to the AnyHabit API! This document provides comprehensive information about all available endpoints, request formats, and response schemas.
 
 > [!NOTE]
-> **0.7.0 added several endpoints** that this document does not yet cover in
+> **1.3.0 added several endpoints** that this document does not yet cover in
 > prose: backup import (`POST /import/`), tracker archiving, log editing,
 > preferences and password changes, group management, and `/health`.
 > The **[Quick Reference](API_QUICK_REFERENCE.md)** lists the complete current

@@ -253,6 +253,17 @@ function TrackerPage({ trackerId }) {
 export default TrackerPage;
 ```
 
+## Data Export & Import (FormData)
+
+Handling file downloads and uploads requires specific configurations in your fetch/axios wrapper:
+
+**Exporting Data (Blob):**
+When calling the export API to download files, you must handle the response as a `blob`. The frontend creates a temporary URL using `URL.createObjectURL(blob)` to trigger the browser's download prompt.
+*Note: If the user selects the "Full Backup" option (`data_type="backup"`), the UI must force the `format="json"` payload, as relational backup data cannot be mapped to a flat CSV structure.*
+
+**Importing Data (Multipart/Form-Data):**
+When uploading a backup JSON file to `/export/import/`, the request must be sent as `multipart/form-data`. The file is appended to a `FormData` object before being sent to the server.
+
 ## Building Views
 
 ### Dashboard/Overview
@@ -523,4 +534,3 @@ const useCreateTracker = () => {
 - [Full API Documentation](./README.md)
 - [Quick Reference](./API_QUICK_REFERENCE.md)
 - [Main Project README](../README.md)
-
