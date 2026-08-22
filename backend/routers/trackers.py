@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .. import models, schemas
+from .. import models, schemas, webhooks
 from ..access import (
     accessible_trackers_query,
     can_view_group,
@@ -260,6 +260,14 @@ def create_tracker(
     _assign_tracker_participants(db, db_tracker.id, participant_ids, current_user.id)
     db.commit()
     db.refresh(db_tracker)
+
+    webhooks.dispatch(
+        db,
+        current_user.id,
+        "tracker.created",
+        {"tracker": {"id": db_tracker.id, "name": db_tracker.name, "type": db_tracker.type,
+                     "category": db_tracker.category}},
+    )
     return _decorate(db, db_tracker)
 
 
@@ -346,6 +354,13 @@ def reset_tracker(
 
     db.commit()
     db.refresh(tracker)
+
+    webhooks.dispatch(
+        db,
+        current_user.id,
+        "tracker.relapse",
+        {"tracker": {"id": tracker.id, "name": tracker.name}, "note": content, "at": reset_at},
+    )
     return _decorate(db, tracker)
 
 
@@ -391,6 +406,13 @@ def archive_tracker(
     tracker.is_active = False
     db.commit()
     db.refresh(tracker)
+
+    webhooks.dispatch(
+        db,
+        current_user.id,
+        "tracker.archived",
+        {"tracker": {"id": tracker.id, "name": tracker.name}},
+    )
     return _decorate(db, tracker)
 
 

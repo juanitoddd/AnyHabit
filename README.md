@@ -23,7 +23,18 @@
 <details>
 <summary><b>🚀 Click to see Recent Updates (Changelog)</b></summary>
 
-#### [v1.3.0] - Latest Release
+#### [v1.4.0] - Latest Release
+- **Added:** Nine more dashboard widgets — Tracker Spotlight, Quick Log, Heatmap, Recent Activity, Journal Feed, Mood Trend, Notes, API Explorer and Embed
+- **Added:** Personal API tokens for scripts and integrations (Settings → Developer)
+- **Added:** Webhooks with HMAC-signed payloads — log entries, journals, relapses and streak milestones
+- **Added:** Prometheus metrics endpoint for Grafana
+- **Added:** `GET /dashboard/activity` for recent entries across all trackers
+- **Fixed:** Typing in any dialog stole focus onto the close button after every keystroke
+- **Fixed:** The widget settings and Add Widget dialogs ignored Escape
+- **Fixed:** The `/developer` API was not proxied, making it unreachable in production
+- [Full Changelog](https://github.com/Sparths/AnyHabit/compare/v1.3.0...v1.4.0)
+
+#### [v1.3.0] - Timezones, Backups and Archiving
 - **Added:** Your own time zone — streaks and daily targets now reset at *your* midnight, not UTC midnight
 - **Added:** Restore from a backup with a preview of exactly what will change, in Settings → Data
 - **Added:** Automatic database snapshot before every upgrade, kept in `data/backups/`
@@ -82,6 +93,8 @@
 * **Daily Journal:** Log your mood and thoughts, then search back through them.
 * **Safe Upgrades:** The database is snapshotted automatically before any schema change.
 * **Fast Navigation:** `Ctrl`/`⌘` + `K` searches trackers, categories and actions.
+* **A Dashboard You Build:** 15 widget types — spotlight a tracker, one-tap logging, heatmaps, feeds, notes, even an embedded Grafana panel.
+* **Built to Integrate:** API tokens, signed webhooks and a Prometheus endpoint, because self-hosted should mean it plugs into everything else you run.
 * **Dark Mode:** Light, dark, or follow your system.
 * **Full Data Ownership:** Export trackers and journals as CSV for analysis, or a complete JSON backup you can restore here or on another server.
 * **Self-Hosted & Private:** Complete control over your data with SQLite and Docker.
@@ -204,6 +217,27 @@ curl -b cookies.txt http://localhost/trackers/1/bundle
 # Version, schema version and what the last boot migrated
 curl http://localhost/health
 ```
+
+### Integrations
+
+AnyHabit is built to plug into the rest of your setup:
+
+* **API tokens** — create one under Settings → Developer, then
+  `Authorization: Bearer ahb_…` on any request. Revocable, optionally expiring.
+* **Webhooks** — signed with HMAC-SHA256, fired on logs, journals, relapses and
+  streak milestones. Point them at Home Assistant, Discord, n8n or a shell script.
+* **Prometheus** — scrape `/developer/metrics` for streaks, progress and impact,
+  scoped to the token's owner.
+
+```bash
+# Log 30 pages from a cron job
+curl -X POST http://localhost/trackers/1/logs/ \
+  -H "Authorization: Bearer $ANYHABIT_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"amount": 30, "note": "morning reading"}'
+```
+
+See the [Quick Reference](backend/API_QUICK_REFERENCE.md) for the full surface.
 
 Interactive docs are served by the app itself —
 **[Swagger UI](http://localhost/docs)** · **[ReDoc](http://localhost/redoc)** —

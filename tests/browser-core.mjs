@@ -35,8 +35,34 @@ try {
   console.log('\n[2] Create a tracker with the new fields');
   await page.getByRole('button', { name: 'Create Tracker' }).click();
   await page.waitForSelector('#tracker-name');
-  await page.fill('#tracker-name', 'Quit Coffee');
-  await page.fill('#tracker-description', 'Sleeping better is the point.');
+
+  // Typed one key at a time on purpose. `fill()` sets the value in one shot and
+  // would not have caught the dialog stealing focus back on every keystroke.
+  await page.locator('#tracker-name').click();
+  await page.locator('#tracker-name').pressSequentially('Quit Coffee', { delay: 15 });
+  check(
+    'focus stays in the name field while typing',
+    await page.evaluate(() => document.activeElement?.id) === 'tracker-name',
+    `focus was on: ${await page.evaluate(() => document.activeElement?.id || document.activeElement?.getAttribute('aria-label') || document.activeElement?.tagName)}`
+  );
+  check(
+    'every typed character arrived',
+    (await page.inputValue('#tracker-name')) === 'Quit Coffee',
+    await page.inputValue('#tracker-name')
+  );
+
+  await page.locator('#tracker-description').click();
+  await page.locator('#tracker-description').pressSequentially('Sleeping better', { delay: 15 });
+  check(
+    'focus stays in the description field while typing',
+    await page.evaluate(() => document.activeElement?.id) === 'tracker-description',
+    `focus was on: ${await page.evaluate(() => document.activeElement?.id || 'unknown')}`
+  );
+  check(
+    'description received every character',
+    (await page.inputValue('#tracker-description')) === 'Sleeping better',
+    await page.inputValue('#tracker-description')
+  );
   // Back-date the start, which was impossible before.
   await page.fill('#tracker-start', '2026-06-01');
   await page.fill('#tracker-unit', 'Cups');
@@ -53,7 +79,7 @@ try {
   check('navigated to the new tracker', true);
   check(
     'description is displayed',
-    await page.locator('text=Sleeping better is the point.').isVisible()
+    await page.locator('text=Sleeping better').first().isVisible()
   );
   const startedText = await page.locator('text=/Started .*2026/').first().textContent();
   check('back-dated start date was kept', /Jun/.test(startedText || ''), startedText || '');

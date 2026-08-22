@@ -7,6 +7,8 @@ fs.mkdirSync(DOWNLOADS, { recursive: true });
 
 const RUN_ID = Date.now().toString(36);
 const USERNAME = `restorer_${RUN_ID}`;
+const TRACKER_NAME = `Backup Subject ${RUN_ID}`;
+const DESCRIPTION = `Written for run ${RUN_ID}`;
 const EMAIL = `${USERNAME}@example.com`;
 
 const failures = [];
@@ -43,6 +45,25 @@ try {
   console.log('\n[1] Export a backup');
   await signIn('owner@anyhabit.local', 'e2e-password');
 
+  // Seed a tracker this run owns outright. Relying on another suite's leftovers
+  // meant the assertions depended on whatever earlier runs had left behind.
+  await page.locator('.home-page button:has-text("Create Tracker")').click();
+  await page.waitForSelector('#tracker-name');
+  await page.fill('#tracker-name', TRACKER_NAME);
+  await page.fill('#tracker-description', DESCRIPTION);
+  await page.fill('#tracker-unit', 'Cups');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.waitForSelector('text=Tracker created', { timeout: 10000 });
+  await page.waitForSelector(`h1:has-text("${TRACKER_NAME}")`, { timeout: 10000 });
+
+  // Give it a journal entry so the backup has something to carry.
+  await page.fill('#journal-content', 'Entry written before the backup.');
+  await page.getByRole('button', { name: 'Post', exact: true }).click();
+  await page.waitForSelector('text=Journal entry saved', { timeout: 10000 });
+
+  await page.locator('.app-sidebar button:has-text("Home")').click();
+  await page.waitForSelector('text=Add Widget', { timeout: 10000 });
+
   await page.locator('.app-sidebar button:has-text("Export data")').click();
   await page.waitForSelector('text=Export your data');
   const downloadPromise = page.waitForEvent('download', { timeout: 15000 });
@@ -54,7 +75,7 @@ try {
 
   const backup = JSON.parse(fs.readFileSync(backupPath, 'utf8'));
   check('backup declares the restorable format', backup.format === 'anyhabit-backup', backup.format);
-  check('backup contains the tracker', backup.trackers?.some((t) => t.name === 'Quit Coffee'));
+  check('backup contains the tracker', backup.trackers?.some((t) => t.name === TRACKER_NAME));
   check('backup carries journals', backup.trackers?.some((t) => (t.journals || []).length > 0));
   await page.waitForSelector('text=Export downloaded', { timeout: 5000 });
 
@@ -87,13 +108,19 @@ try {
   check('import completed with a summary', true);
 
   await page.waitForTimeout(800);
-  check('restored tracker appears in the sidebar', await page.locator('button:has-text("Quit Coffee")').first().isVisible());
+  check(
+    'restored tracker appears in the sidebar',
+    await page.locator(`button:has-text("${TRACKER_NAME}")`).first().isVisible()
+  );
 
   console.log('\n[3] Restored data is intact');
-  await page.locator('button:has-text("Quit Coffee")').first().click();
-  await page.waitForSelector('h1:has-text("Quit Coffee")', { timeout: 10000 });
-  check('description restored', await page.locator('text=Sleeping better is the point.').isVisible());
-  check('relapse journal entry restored', await page.locator('text=Relapse').first().isVisible());
+  await page.locator(`button:has-text("${TRACKER_NAME}")`).first().click();
+  await page.waitForSelector(`h1:has-text("${TRACKER_NAME}")`, { timeout: 10000 });
+  check('description restored', await page.locator(`text=${DESCRIPTION}`).first().isVisible());
+  check(
+    'journal entry restored',
+    await page.locator('text=Entry written before the backup.').first().isVisible()
+  );
 
   console.log('\n[4] Group lifecycle');
   await page.locator('.app-sidebar button:has-text("Groups")').last().click();

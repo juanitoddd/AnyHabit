@@ -407,6 +407,51 @@ def _m_performance_indexes(connection: Connection) -> None:
             connection.execute(text(statement))
 
 
+def _m_api_tokens(connection: Connection) -> None:
+    """1.4: personal access tokens for scripts and integrations."""
+    connection.execute(
+        text(
+            "CREATE TABLE IF NOT EXISTS api_tokens ("
+            "id INTEGER PRIMARY KEY, "
+            "user_id INTEGER, "
+            "name VARCHAR NOT NULL, "
+            "token_hash VARCHAR NOT NULL UNIQUE, "
+            "token_prefix VARCHAR DEFAULT '', "
+            "scope VARCHAR DEFAULT 'read_write', "
+            "created_at DATETIME, "
+            "last_used_at DATETIME, "
+            "expires_at DATETIME, "
+            "revoked_at DATETIME"
+            ")"
+        )
+    )
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_api_tokens_user ON api_tokens (user_id)"))
+
+
+def _m_webhooks(connection: Connection) -> None:
+    """1.4: outbound webhooks."""
+    connection.execute(
+        text(
+            "CREATE TABLE IF NOT EXISTS webhooks ("
+            "id INTEGER PRIMARY KEY, "
+            "user_id INTEGER, "
+            "name VARCHAR DEFAULT '', "
+            "url VARCHAR NOT NULL, "
+            "events VARCHAR DEFAULT '*', "
+            "secret VARCHAR DEFAULT '', "
+            "is_active BOOLEAN DEFAULT 1, "
+            "created_at DATETIME, "
+            "last_status INTEGER, "
+            "last_error TEXT DEFAULT '', "
+            "last_triggered_at DATETIME, "
+            "delivery_count INTEGER DEFAULT 0, "
+            "failure_count INTEGER DEFAULT 0"
+            ")"
+        )
+    )
+    connection.execute(text("CREATE INDEX IF NOT EXISTS ix_webhooks_user ON webhooks (user_id)"))
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0001_group_tables", _m_group_tables),
     ("0002_seed_bootstrap_user", _m_seed_bootstrap_user),
@@ -424,6 +469,8 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0014_tracker_details", _m_tracker_details),
     ("0015_habit_log_note", _m_habit_log_note),
     ("0016_performance_indexes", _m_performance_indexes),
+    ("0017_api_tokens", _m_api_tokens),
+    ("0018_webhooks", _m_webhooks),
 ]
 
 

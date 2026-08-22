@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import os
 import secrets
 import threading
@@ -98,6 +99,55 @@ def decode_access_token(token: str) -> dict[str, Any]:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid authentication token"
         ) from exc
+
+
+# ---------------------------------------------------------------------------
+# Personal access tokens
+# ---------------------------------------------------------------------------
+
+# Recognisable in logs and greppable in a config file, the way `ghp_` or `sk-`
+# are. Also lets the auth dependency tell an API token from a JWT instantly.
+API_TOKEN_PREFIX = "ahb_"
+API_TOKEN_BYTES = 32
+API_TOKEN_PREVIEW_LENGTH = 12
+
+
+def generate_api_token() -> tuple[str, str, str]:
+    """Return ``(plaintext, hash, preview)`` for a new token.
+
+    Only the hash is stored. The plaintext is returned to the caller once and
+    is unrecoverable afterwards — which is the point.
+    """
+    plaintext = f"{API_TOKEN_PREFIX}{secrets.token_urlsafe(API_TOKEN_BYTES)}"
+    return plaintext, hash_api_token(plaintext), plaintext[:API_TOKEN_PREVIEW_LENGTH]
+
+
+def hash_api_token(plaintext: str) -> str:
+    """Hash a token for storage and lookup.
+
+    A plain SHA-256 rather than PBKDF2: these are 256 bits of entropy from a
+    CSPRNG, not a human-chosen password, so there is nothing to brute force,
+    and lookup has to be a single indexed query on every API request.
+    """
+    return hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
+
+
+def looks_like_api_token(value: str) -> bool:
+    return value.startswith(API_TOKEN_PREFIX)
+
+
+# ---------------------------------------------------------------------------
+# Webhook signing
+# ---------------------------------------------------------------------------
+
+
+def generate_webhook_secret() -> str:
+    return secrets.token_urlsafe(24)
+
+
+def sign_webhook_payload(secret: str, body: bytes) -> str:
+    """HMAC-SHA256 of the body, so a receiver can verify the call came from us."""
+    return hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
 
 
 # ---------------------------------------------------------------------------

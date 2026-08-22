@@ -1,15 +1,17 @@
-import { Database, Info, LogOut, Monitor, Moon, Palette, Sun, User } from 'lucide-react';
+import { Code2, Database, Info, LogOut, Monitor, Moon, Palette, Sun, User } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { WEEK_START_OPTIONS } from '../../constants/tracker';
 import { fetchSystemInfoApi } from '../../services/systemApi';
 import { useAppState } from '../../state/appState';
 import { getTimezoneOptions } from '../../utils/date';
+import DeveloperTab from '../settings/DeveloperTab';
 import Modal from '../ui/Modal';
 
 const TABS = [
   { id: 'account', label: 'Account', icon: User },
   { id: 'preferences', label: 'Preferences', icon: Palette },
   { id: 'data', label: 'Data', icon: Database },
+  { id: 'developer', label: 'Developer', icon: Code2 },
   { id: 'about', label: 'About', icon: Info }
 ];
 
@@ -483,6 +485,7 @@ function SettingsModal() {
       {activeTab === 'account' && <AccountTab />}
       {activeTab === 'preferences' && <PreferencesTab />}
       {activeTab === 'data' && <DataTab />}
+      {activeTab === 'developer' && <DeveloperTab />}
       {activeTab === 'about' && <AboutTab />}
     </Modal>
   );

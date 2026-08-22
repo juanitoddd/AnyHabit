@@ -9,12 +9,14 @@ const SIZES = {
   '2xl': 'max-w-3xl'
 };
 
+const FOCUSABLE =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 /**
  * Shared dialog shell.
  *
  * Each modal used to hand-roll its own overlay, which meant none of them
  * closed on Escape, none trapped focus, and none restored focus on close.
- * Centralising it fixes all of them at once.
  */
 function Modal({
   isOpen,
@@ -28,7 +30,20 @@ function Modal({
   initialFocusRef
 }) {
   const panelRef = useRef(null);
+  const contentRef = useRef(null);
   const previouslyFocusedRef = useRef(null);
+
+  // Callers pass inline arrow functions, so these identities change on every
+  // render. Reading them through refs keeps the setup effect below dependent
+  // on `isOpen` alone — when it also depended on `onClose`, every keystroke
+  // re-ran it and yanked focus out of whatever field was being typed into.
+  const onCloseRef = useRef(onClose);
+  const initialFocusTargetRef = useRef(initialFocusRef);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+    initialFocusTargetRef.current = initialFocusRef;
+  });
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -38,7 +53,7 @@ function Modal({
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
         event.stopPropagation();
-        onClose();
+        onCloseRef.current?.();
         return;
       }
 
@@ -46,8 +61,8 @@ function Modal({
 
       // Keep Tab inside the dialog so keyboard users cannot wander into the
       // inert page behind the overlay.
-      const focusable = panelRef.current.querySelectorAll(
-        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      const focusable = [...panelRef.current.querySelectorAll(FOCUSABLE)].filter(
+        (element) => element.offsetParent !== null || element === document.activeElement
       );
       if (!focusable.length) return;
 
@@ -69,17 +84,22 @@ function Modal({
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
+    // Prefer a real field inside the body over the header's close button,
+    // which is simply the first focusable element in DOM order.
     const focusTarget =
-      initialFocusRef?.current ||
-      panelRef.current?.querySelector('input:not([type="hidden"]), textarea, select, button');
+      initialFocusTargetRef.current?.current ||
+      contentRef.current?.querySelector(FOCUSABLE) ||
+      panelRef.current?.querySelector(FOCUSABLE);
     focusTarget?.focus?.();
+
+    const restoreFocusTo = previouslyFocusedRef.current;
 
     return () => {
       document.removeEventListener('keydown', handleKeyDown, true);
       document.body.style.overflow = previousOverflow;
-      previouslyFocusedRef.current?.focus?.();
+      restoreFocusTo?.focus?.();
     };
-  }, [isOpen, onClose, initialFocusRef]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -114,7 +134,9 @@ function Modal({
           </div>
         )}
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 md:px-7">{children}</div>
+        <div ref={contentRef} className="min-h-0 flex-1 overflow-y-auto px-5 py-5 md:px-7">
+          {children}
+        </div>
 
         {footer && <div className="border-t border-gray-100 px-5 py-4 md:px-7">{footer}</div>}
       </div>

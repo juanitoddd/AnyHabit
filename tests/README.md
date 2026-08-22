@@ -10,9 +10,25 @@ for "upgrading must never destroy data".
 pip install -r backend/requirements.txt
 python -m backend.tests.test_upgrade_path          # from pre-accounts v0.6.2
 python -m backend.tests.test_upgrade_from_current  # from v0.6.x with accounts
+python -m backend.tests.test_backup_compatibility  # v1.2.0 backups still restore
 ```
 
 Each writes to a temporary directory and cleans up after itself.
+
+## Other backend suites
+
+```bash
+python -m backend.tests.test_developer_api      # tokens, webhooks, metrics, activity
+python -m backend.tests.test_proxy_coverage     # every router is reachable through nginx
+```
+
+`test_developer_api` starts a throwaway HTTP server to receive real webhook
+deliveries and verifies their HMAC signatures.
+
+`test_proxy_coverage` derives the required prefixes from the app's own routes
+and checks them against `nginx.conf` and `vite.config.js` — a new router that
+nobody adds to the proxy is otherwise served the SPA's HTML and fails only in
+production.
 
 ## Browser tests
 
@@ -33,7 +49,12 @@ cd frontend && npm run dev
 npm install playwright
 node tests/browser-core.mjs
 node tests/browser-backup-groups.mjs
+node tests/browser-widgets.mjs
 ```
+
+`browser-widgets.mjs` adds every widget type to the dashboard and drives the
+developer settings, which is what catches a widget that crashes on render or an
+endpoint the dev proxy does not forward.
 
 `ANYHABIT_URL` overrides the target (default `http://127.0.0.1:5173`), and
 `CHROMIUM_PATH` points Playwright at an existing Chromium instead of a
