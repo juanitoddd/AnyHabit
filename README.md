@@ -271,12 +271,8 @@ Join our **[Discord Server](https://discord.gg/ajknBq5zcH)** to:
 * **🐛 Bugs:** [Open a Bug Report](https://github.com/Sparths/AnyHabit/issues)
 * **💻 Code:** Check our [Contributing Guidelines](CONTRIBUTING.md)
 
-## ⭐ Star History
+## 👥 Contributors
 
-<a href="[https://www.star-history.com/?repos=Sparths%2FAnyHabit&type=date&legend=top-left](https://www.star-history.com/?repos=Sparths%2FAnyHabit&type=date&legend=top-left)">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="[https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&theme=dark&legend=top-left](https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&theme=dark&legend=top-left)" />
-   <source media="(prefers-color-scheme: light)" srcset="[https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&legend=top-left](https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&legend=top-left)" />
-   <img alt="Star History Chart" src="[https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&legend=top-left](https://api.star-history.com/chart?repos=Sparths/AnyHabit&type=date&legend=top-left)" />
- </picture>
+<a href="https://github.com/Sparths/AnyHabit/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=Sparths/AnyHabit" alt="AnyHabit contributors" />
 </a>
